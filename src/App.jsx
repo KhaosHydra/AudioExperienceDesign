@@ -1,8 +1,6 @@
 /**
  * SOUND ROOM v3 — Pixel Art Room
- * Sprites: public/sprites/ (cropped, pre-positioned at 512×384)
- * Source canvas: 2560×1920 → displayed at 512×384 (scale 0.2)
- * DESE-61003 · Imperial College London
+ * Tweaked for smoother musical transitions and gentler spatial behaviour.
  */
 import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
 import './index.css';
@@ -10,10 +8,6 @@ import useOSC from './useOSC';
 
 const RW = 512, RH = 384;
 
-// ── Sprite offset table ───────────────────────────────────────────────────────
-// ox,oy = top-left of cropped sprite in 512×384 room space
-// w,h   = rendered size in px
-// anchorFx/Fy = foot point as fraction of sprite w/h (for draggable objects)
 const S = {
   'Room - Room.png':            {ox:0,   oy:0,   w:512, h:384},
   'Room - Day.png':             {ox:387, oy:99,  w:88,  h:115},
@@ -21,9 +15,8 @@ const S = {
   'Room - Sun.png':             {ox:395, oy:123, w:31,  h:30},
   'Room - Moon.png':            {ox:441, oy:145, w:27,  h:29},
   'Room - Window.png':          {ox:380, oy:96,  w:96,  h:130},
-  'Room - Blinds.png':          {ox:383, oy:97,  w:95,  h:133},  // full blind incl. tassel
+  'Room - Blinds.png':          {ox:383, oy:97,  w:95,  h:133},
   'Room - Lamp.png':            {ox:230, oy:30,  w:52,  h:78},
-  // Draggable objects
   'Room - Bed.png': {ox:189, oy:85, w:170, h:128, anchorFx:0.4765, anchorFy:0.6328},
   'Room - Bookshelf.png': {ox:13, oy:105, w:138, h:158, anchorFx:0.4638, anchorFy:0.981},
   'Room - Coffee.png': {ox:231, oy:283, w:19, h:25, anchorFx:0.3684, anchorFy:0.96},
@@ -35,12 +28,9 @@ const S = {
   'Room - Speakers.png': {ox:299, oy:159, w:57, h:55, anchorFx:0.4561, anchorFy:1},
   'Room - Table.png': {ox:208, oy:245, w:164, h:131, anchorFx:0.9878, anchorFy:1},
   'Room - Vinyl Player.png':    {ox:302, oy:243, w:60,  h:43,  anchorFx:0.50, anchorFy:0.95},
-  // Avatar — always visible, non-draggable, fixed centre-floor
   'Room - Avatar.png':          {ox:233, oy:168, w:43,  h:80,  anchorFx:0.50, anchorFy:0.99},
 };
 
-
-// ── Isometric floor projection ─────────────────────────────────────────────────
 const FLOOR = {
   top:  {x:256, y:128},
   left: {x:6, y:253},
@@ -55,6 +45,7 @@ function toScreen(lx, ly) {
     sy: top.y+(right.y-top.y)*lx+(left.y-top.y)*ly+(bot.y-right.y-left.y+top.y)*lx*ly,
   };
 }
+
 function fromScreen(sx, sy) {
   let lx=(sx-FLOOR.left.x)/(FLOOR.right.x-FLOOR.left.x);
   let ly=(sy-FLOOR.top.y)/(FLOOR.bot.y-FLOOR.top.y);
@@ -65,37 +56,45 @@ function fromScreen(sx, sy) {
   }
   return {lx,ly};
 }
-function computePan(lx,ly){return Math.max(-1,Math.min(1,(lx-ly)*2));}
-function computeVol(lx,ly){const d=Math.sqrt((lx-.5)**2+(ly-.5)**2);return .15+.5*Math.pow(Math.max(0,1-d/.6),.65);}
 
-// Given sprite name + floor position, return {left,top,width,height} for absolute positioning
+function clamp(v, lo, hi) {
+  return Math.max(lo, Math.min(hi, v));
+}
+
+// Gentler horizontal pan. This gives a more believable spatial image than the old diagonal mapping.
+function computePan(lx) {
+  return clamp((lx - 0.5) * 1.5, -0.75, 0.75);
+}
+
+// Depth-based level so front objects are a little clearer, but nothing gets too loud.
+function computeVol(lx, ly) {
+  const depth = clamp(ly, 0, 1);
+  const centreBias = 1 - Math.min(1, Math.abs(lx - 0.5) * 1.2);
+  return 0.16 + 0.28 * Math.pow(depth, 0.65) + 0.06 * centreBias;
+}
+
 function getObjPos(sprite, lx, ly) {
   const sp=S[sprite];
-  if(!sp) return {left:0,top:0,width:0,height:0};  // safety — unknown sprite
+  if(!sp) return {left:0,top:0,width:0,height:0};
   const {sx,sy}=toScreen(lx,ly);
   const ax=sp.w*(sp.anchorFx??0.5);
   const ay=sp.h*(sp.anchorFy??0.98);
   return {left:Math.round(sx-ax), top:Math.round(sy-ay), width:sp.w, height:sp.h};
 }
 
-// ── Object definitions ─────────────────────────────────────────────────────────
-// Coffee mug controls playback speed, not a musical layer
-const SPEED_OBJECT_ID = 'Coffee';
-
 const OBJECTS_DEF = [
-  {id:'Bed',      sprite:'Room - Bed.png',           soundRole:'melody2', name:'Bed'},
-  {id:'Bookshelf',sprite:'Room - Bookshelf.png',     soundRole:'bass',    name:'Bookshelf'},
-  {id:'Cat',      sprite:'Room - Cat.png',           soundRole:'sparkle', name:'Cat'},
-  {id:'Coffee',   sprite:'Room - Coffee.png',        soundRole:null,      name:'Coffee Mug', isSpeed:true},
-  {id:'Duck',     sprite:'Room - Duck teddy.png',    soundRole:'pad',     name:'Duck Teddy'},
-  {id:'Frog',     sprite:'Room - Frog Teddy.png',    soundRole:'arp',     name:'Frog Teddy'},
-  {id:'PlantOval',sprite:'Room - Plant oval base.png',soundRole:'harmony',name:'Plant (oval)'},
-  {id:'PlantBox', sprite:'Room - Plant.png',         soundRole:'texture', name:'Plant (box)'},
-  {id:'Speakers', sprite:'Room - Speakers.png',      soundRole:'rhythm',  name:'Speakers'},
-  {id:'Table',    sprite:'Room - Table.png',         soundRole:'melody',  name:'Table'},
+  {id:'Bed',      sprite:'Room - Bed.png',            soundRole:'melody2', name:'Bed'},
+  {id:'Bookshelf',sprite:'Room - Bookshelf.png',      soundRole:'bass',    name:'Bookshelf'},
+  {id:'Cat',      sprite:'Room - Cat.png',            soundRole:'sparkle', name:'Cat'},
+  {id:'Coffee',   sprite:'Room - Coffee.png',         soundRole:null,      name:'Coffee Mug', isSpeed:true},
+  {id:'Duck',     sprite:'Room - Duck teddy.png',     soundRole:'pad',     name:'Duck Teddy'},
+  {id:'Frog',     sprite:'Room - Frog Teddy.png',     soundRole:'arp',     name:'Frog Teddy'},
+  {id:'PlantOval',sprite:'Room - Plant oval base.png',soundRole:'harmony', name:'Plant (oval)'},
+  {id:'PlantBox', sprite:'Room - Plant.png',          soundRole:'texture', name:'Plant (box)'},
+  {id:'Speakers', sprite:'Room - Speakers.png',       soundRole:'rhythm',  name:'Speakers'},
+  {id:'Table',    sprite:'Room - Table.png',          soundRole:'melody',  name:'Table'},
 ];
 
-// ── Dial ───────────────────────────────────────────────────────────────────────
 function Dial({value,onChange,label,size=52,color='#d4a840'}) {
   const drag=useRef(false),sY=useRef(0),sV=useRef(0);
   const MIN=-135,MAX=135,deg=MIN+(value/100)*(MAX-MIN);
@@ -129,17 +128,15 @@ function Dial({value,onChange,label,size=52,color='#d4a840'}) {
   );
 }
 
-// ── Main App ───────────────────────────────────────────────────────────────────
 export default function App() {
   const roomRef=useRef(null);
   const [placed,setPlaced]=useState([]);
   const [drag,setDrag]=useState(null);
-  const [dragPos,setDragPos]=useState({x:0,y:0});
   const [sel,setSel]=useState(null);
-  const [touchOrder,setTouchOrder]=useState([]); // iid order, last = on top
-  const [speed,setSpeed]=useState(1.0); // playback speed for coffee mug (0.5-2.0)
+  const [touchOrder,setTouchOrder]=useState([]);
+  const [speed,setSpeed]=useState(1.0);
   const [lamp,setLamp]=useState(0);
-  const [blinds,setBlinds]=useState(0);   // 0=fully open, 100=fully closed
+  const [blinds,setBlinds]=useState(0);
   const [weather,setWeather]=useState('clear');
   const [dn,setDn]=useState(0);
   const [showLoad,setShowLoad]=useState(true);
@@ -147,71 +144,114 @@ export default function App() {
   const [hovTray,setHovTray]=useState(null);
   const [trayDrag,setTrayDrag]=useState(null);
   const trayDragRef=useRef(null);
-  const transTimer=useRef(null);
+  const transitionTimers=useRef([]);
   const prevIsNight=useRef(false);
   const osc=useOSC();
 
   const isNight=dn>=50, n=dn/100;
-  // Blinds: 0=fully open (blind slid UP, hidden), 100=fully closed (blind fully down)
-  // translateY: at 0 → -BLIND_H (hidden above), at 100 → 0 (fully down)
   const BLIND_H=133;
-  const blindSlideY = -BLIND_H + (blinds/100)*BLIND_H;  // -133 (open) → 0 (closed)
-  // Lamp glow
+  const blindSlideY = -BLIND_H + (blinds/100)*BLIND_H;
   const lampAlpha=(lamp/100)*0.5;
   const lampRadius=30+lamp*0.5;
   const CFMS=5000;
 
-  // OSC
+  const clearTransitionTimers = useCallback(() => {
+    transitionTimers.current.forEach(clearTimeout);
+    transitionTimers.current = [];
+  }, []);
+
+  const sendRoleState = useCallback((soundRole, obj) => {
+    if (!soundRole) return;
+    if (obj) {
+      osc.send(
+        `/soundroom/layer/${soundRole}`,
+        computePan(obj.lx).toFixed(3),
+        computeVol(obj.lx, obj.ly).toFixed(3),
+        '1.0'
+      );
+      return;
+    }
+    if (soundRole === 'harmony') {
+      osc.send('/soundroom/layer/harmony', '0.0', '0.18', '1.0');
+      return;
+    }
+    osc.send(`/soundroom/layer/${soundRole}`, '0.0', '0.0', '0.0');
+  }, [osc]);
+
+  const sendAll = useCallback(() => {
+    for (const def of OBJECTS_DEF) {
+      if (!def.soundRole) continue;
+      const obj = placed.find((p) => p.soundRole === def.soundRole);
+      sendRoleState(def.soundRole, obj);
+    }
+  }, [placed, sendRoleState]);
+
+  const pushSpeed = useCallback((items) => {
+    const coffee = items.find((p) => p.id === 'Coffee');
+    if (coffee) {
+      const nextSpeed = 0.9 + coffee.lx * 0.25; // 0.90 → 1.15, much more musical
+      setSpeed(+nextSpeed.toFixed(2));
+      osc.send('/soundroom/speed', nextSpeed.toFixed(3));
+      return;
+    }
+    setSpeed(1.0);
+    osc.send('/soundroom/speed', '1.0');
+  }, [osc]);
+
   const handleStart=useCallback(()=>{
-    setShowLoad(false);setStarted(true);
-    for(const{soundRole}of OBJECTS_DEF) osc.send(`/soundroom/layer/${soundRole}`,'0.0','0.0','0.0');
-    osc.send('/soundroom/layer/harmony','0.0','0.15','1.0');
-    osc.send('/soundroom/time','0.0');
-    osc.send('/soundroom/blinds',blinds);
-    osc.send('/soundroom/lamp',lamp);
-    osc.send('/soundroom/weather','0.0');
+    setShowLoad(false);
+    setStarted(true);
+    for (const { soundRole } of OBJECTS_DEF) {
+      if (!soundRole) continue;
+      osc.send(`/soundroom/layer/${soundRole}`, '0.0', '0.0', '0.0');
+    }
+    osc.send('/soundroom/layer/harmony', '0.0', '0.18', '1.0');
+    osc.send('/soundroom/time', '0.0');
+    osc.send('/soundroom/blinds', String(blinds));
+    osc.send('/soundroom/lamp', String(lamp));
+    osc.send('/soundroom/weather', '0.0');
+    osc.send('/soundroom/speed', '1.0');
   },[osc,blinds,lamp]);
 
-  const sendAll=useCallback(()=>{
-    for(const def of OBJECTS_DEF){
-      const{soundRole}=def;
-      if(!soundRole) continue; // skip speed-control objects
-      const o=placed.find(p=>p.soundRole===soundRole);
-      if(o) osc.send(`/soundroom/layer/${soundRole}`,computePan(o.lx,o.ly).toFixed(3),computeVol(o.lx,o.ly).toFixed(3),'1.0');
-      else if(soundRole==='harmony') osc.send('/soundroom/layer/harmony','0.0','0.15','1.0');
-      else osc.send(`/soundroom/layer/${soundRole}`,'0.0','0.0','0.0');
-    }
-  },[placed,osc]);
+  useEffect(() => () => clearTransitionTimers(), [clearTransitionTimers]);
 
-  useEffect(()=>{if(!started)return;if(isNight===prevIsNight.current)return;prevIsNight.current=isNight;
-    osc.send('/soundroom/time',isNight?'100.0':'0.0');
-    if(transTimer.current)clearTimeout(transTimer.current);
-    transTimer.current=setTimeout(()=>{sendAll();transTimer.current=null;},CFMS+200);
-  },[isNight,started,osc,sendAll]);
-  useEffect(()=>{if(!started)return;osc.send('/soundroom/blinds',blinds);},[blinds,started]);
-  useEffect(()=>{if(!started)return;osc.send('/soundroom/lamp',lamp);},[lamp,started]);
-  useEffect(()=>{if(!started)return;osc.send('/soundroom/weather',weather==='rain'?'1.0':'0.0');},[weather,started]);
   useEffect(()=>{
-    if(!started)return;
+    if(!started) return;
+    if(isNight===prevIsNight.current) return;
+    prevIsNight.current=isNight;
+
+    clearTransitionTimers();
+    osc.send('/soundroom/time', isNight ? '100.0' : '0.0');
+
+    // Stage the resend so Max can crossfade before all layers are reasserted.
+    transitionTimers.current.push(
+      setTimeout(() => sendAll(), Math.round(CFMS * 0.3)),
+      setTimeout(() => sendAll(), CFMS + 150)
+    );
+  },[isNight,started,osc,sendAll,clearTransitionTimers]);
+
+  useEffect(()=>{ if(started) osc.send('/soundroom/blinds', String(blinds)); },[blinds,started,osc]);
+  useEffect(()=>{ if(started) osc.send('/soundroom/lamp', String(lamp)); },[lamp,started,osc]);
+  useEffect(()=>{ if(started) osc.send('/soundroom/weather', weather==='rain' ? '1.0' : '0.0'); },[weather,started,osc]);
+
+  useEffect(()=>{
+    if(!started) return;
     sendAll();
-    // Coffee mug controls speed
-    const coffee=placed.find(p=>p.id==='Coffee');
-    if(coffee){
-      // Map lx position: left=slow(0.5), right=fast(2.0)
-      const spd=0.5+coffee.lx*1.5;
-      setSpeed(+spd.toFixed(2));
-      osc.send('/soundroom/speed',spd.toFixed(3));
-    } else {
-      osc.send('/soundroom/speed','1.0'); // reset to normal when removed
-    }
-  },[placed,started]);
-  useEffect(()=>{
-    if(!started||drag===null)return;
-    const o=placed[drag];if(!o)return;
-    osc.send(`/soundroom/layer/${o.soundRole}`,computePan(o.lx,o.ly).toFixed(3),computeVol(o.lx,o.ly).toFixed(3),'1.0');
-  },[placed,drag,started]);
+    pushSpeed(placed);
+  },[placed,started,sendAll,pushSpeed]);
 
-  // Drag placed objects
+  useEffect(()=>{
+    if(!started || drag===null) return;
+    const o=placed[drag];
+    if(!o || !o.soundRole) return;
+    osc.send(
+      `/soundroom/layer/${o.soundRole}`,
+      computePan(o.lx).toFixed(3),
+      computeVol(o.lx,o.ly).toFixed(3),
+      '1.0'
+    );
+  },[placed,drag,started,osc]);
+
   const bringToFront=useCallback((iid)=>{
     setTouchOrder(prev=>[...prev.filter(x=>x!==iid), iid]);
   },[]);
@@ -228,7 +268,6 @@ export default function App() {
       const r=roomRef.current.getBoundingClientRect();
       const rw=r.width/RW,rh=r.height/RH;
       const rx=(e.clientX-r.left)/rw,ry=(e.clientY-r.top)/rh;
-      setDragPos({x:rx,y:ry});
       const{lx,ly}=fromScreen(rx,ry);
       setPlaced(p=>p.map((o,i)=>i===drag?{...o,lx,ly}:o));
     };
@@ -238,7 +277,6 @@ export default function App() {
     return()=>{window.removeEventListener('pointermove',onPM);window.removeEventListener('pointerup',onPU);};
   },[drag]);
 
-  // Tray drag
   const onTrayPD=useCallback((e,def)=>{
     if(placed.some(p=>p.id===def.id))return;
     e.preventDefault();e.stopPropagation();
@@ -255,12 +293,12 @@ export default function App() {
           const{lx,ly}=fromScreen(rx/rw,ry/rh);
           if(isNaN(lx)||isNaN(ly)) return;
           const newObj = {
-              ...trayDragRef.current,
-              lx: Math.max(0.05,Math.min(0.95,lx)),
-              ly: Math.max(0.05,Math.min(0.95,ly)),
-              iid: `${trayDragRef.current.id}_${Date.now()}`,
-            };
-            setPlaced(prev=>[...prev, newObj]);
+            ...trayDragRef.current,
+            lx: clamp(lx, 0.05, 0.95),
+            ly: clamp(ly, 0.05, 0.95),
+            iid: `${trayDragRef.current.id}_${Date.now()}`,
+          };
+          setPlaced(prev=>[...prev, newObj]);
         }
       }
       trayDragRef.current=null;setTrayDrag(null);
@@ -277,8 +315,6 @@ export default function App() {
 
   const sorted=useMemo(()=>[...placed].map((o,i)=>({o,i})).sort((a,b)=>(a.o.lx+a.o.ly)-(b.o.lx+b.o.ly)),[placed]);
   const selObj=sel!==null?placed[sel]:null;
-
-  // Avatar position — sits at centre-front of room, not draggable
   const avatarPos=getObjPos('Room - Avatar.png',0.5,0.72);
 
   const isDark=isNight;
@@ -289,6 +325,26 @@ export default function App() {
   const pageBg=isDark
     ?'radial-gradient(ellipse at 50% 0%,#1a2a42 0%,#0a1220 60%,#050a14 100%)'
     :'radial-gradient(ellipse at 50% 0%,#e8d090 0%,#c09858 50%,#9a7438 100%)';
+
+  const toggleWeather = useCallback((e) => {
+    e?.stopPropagation?.();
+    setWeather((w) => (w === 'clear' ? 'rain' : 'clear'));
+  }, []);
+
+  const switchToNight = useCallback((e) => {
+    e?.stopPropagation?.();
+    if (!isNight) setDn(100);
+  }, [isNight]);
+
+  const switchToDay = useCallback((e) => {
+    e?.stopPropagation?.();
+    if (isNight) setDn(0);
+  }, [isNight]);
+
+  const sunX = S['Room - Sun.png'].ox + n * 44;
+  const sunY = S['Room - Sun.png'].oy + n * 54;
+  const moonX = S['Room - Moon.png'].ox - (1 - n) * 28;
+  const moonY = S['Room - Moon.png'].oy + (1 - n) * 42;
 
   const sp=(name)=>`/sprites/${name}`;
 
@@ -314,14 +370,13 @@ export default function App() {
       alignItems:'center',justifyContent:'center',background:pageBg,transition:'background 1.5s',
       fontFamily:"'Courier New',monospace",padding:16,boxSizing:'border-box',gap:8}}>
 
-      {/* Header */}
       <div style={{width:RW+140,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
         <div style={{fontSize:10,color:dCol,letterSpacing:3}}>
           ◈ SOUND ROOM ·{' '}
           <span style={{color:isDark?'#80b8e0':'#d47830',transition:'color 1s'}}>{isDark?'NIGHT':'DAY'}</span>
         </div>
         <div style={{display:'flex',alignItems:'center',gap:6}}>
-          {[[()=>setWeather(w=>w==='clear'?'rain':'clear'),weather==='rain'?'🌧 rain':'☀ clear'],
+          {[[toggleWeather,weather==='rain'?'🌧 rain':'☀ clear'],
             [randomise,'shuffle'],[resetAll,'reset']].map(([fn,label],i)=>(
             <div key={i} onClick={fn} style={{padding:'3px 10px',cursor:'pointer',fontSize:9,
               color:tCol,background:pBg,border:`1px solid ${pBdr}`,borderRadius:4}}>{label}</div>
@@ -330,27 +385,21 @@ export default function App() {
         </div>
       </div>
 
-      {/* Room row */}
       <div style={{display:'flex',gap:8,alignItems:'center'}}>
-
-        {/* Lamp dial */}
         <div style={{background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,
           padding:'8px 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
           <Dial value={lamp} onChange={setLamp} label="LAMP" size={52} color={isDark?'#80b8e0':'#d4a840'}/>
         </div>
 
-        {/* ── ROOM ── */}
         <div ref={roomRef} onClick={()=>setSel(null)}
           style={{position:'relative',width:RW,height:RH,overflow:'hidden',flexShrink:0,
             borderRadius:3,imageRendering:'pixelated',cursor:'default',
             border:`2px solid ${isDark?'rgba(40,70,120,.5)':'rgba(140,70,20,.4)'}`,
             boxShadow:`0 8px 48px ${isDark?'rgba(4,10,22,.9)':'rgba(80,40,8,.4)'}`}}>
 
-          {/* Room base */}
           <img src={sp('Room - Room.png')} alt="" draggable={false}
             style={{position:'absolute',top:0,left:0,width:RW,height:RH,imageRendering:'pixelated',pointerEvents:'none'}}/>
 
-          {/* Sky crossfade */}
           {[['Room - Day.png',Math.max(0,1-n*1.5)],['Room - Night.png',Math.max(0,n*1.5-.3)]].map(([src,op])=>{
             const s=S[src]; return(
             <img key={src} src={sp(src)} alt="" draggable={false}
@@ -359,7 +408,6 @@ export default function App() {
                 opacity:Math.min(1,op),transition:'opacity 1.5s'}}/>
           );})}
 
-          {/* Sun / Moon */}
           {[['Room - Sun.png',Math.max(0,1-n*4)],['Room - Moon.png',Math.max(0,n*4-3)]].map(([src,op])=>{
             const s=S[src]; return(
             <img key={src} src={sp(src)} alt="" draggable={false}
@@ -368,7 +416,6 @@ export default function App() {
                 opacity:Math.min(1,op),transition:'opacity 1.5s'}}/>
           );})}
 
-          {/* Window frame — click to toggle day/night */}
           {(()=>{ const s=S['Room - Window.png']; return(
             <img src={sp('Room - Window.png')} alt="" draggable={false}
               onClick={e=>{e.stopPropagation();setDn(isNight?0:100);}}
@@ -376,12 +423,10 @@ export default function App() {
                 imageRendering:'pixelated',cursor:'pointer',pointerEvents:'all',zIndex:2}}/>
           );})()}
 
-          {/* ── BLINDS — single sprite that slides up/down ── */}
-          {/* Clipping container matches the window opening */}
           <div style={{
             position:'absolute',
             left: S['Room - Blinds.png'].ox,
-            top:  S['Room - Window.png'].oy + 4,  // clip to just inside window top
+            top:  S['Room - Window.png'].oy + 4,
             width: S['Room - Blinds.png'].w,
             height: S['Room - Window.png'].h - 4,
             overflow:'hidden',
@@ -399,25 +444,22 @@ export default function App() {
               }}/>
           </div>
 
-          {/* Lamp glow */}
           <div style={{position:'absolute',pointerEvents:'none',zIndex:4,
             left:256-lampRadius*2,top:20,
             width:lampRadius*4,height:lampRadius*3,
             background:`radial-gradient(ellipse at 50% 15%,rgba(255,230,100,${lampAlpha}) 0%,rgba(255,200,60,${lampAlpha*.5}) 35%,transparent 70%)`,
             transition:'all .4s',mixBlendMode:'screen'}}/>
 
-          {/* Avatar — always visible, not draggable, behind most objects */}
           <img src={sp('Room - Avatar.png')} alt="avatar" draggable={false}
             style={{position:'absolute',
               left:avatarPos.left,top:avatarPos.top,
               width:avatarPos.width,height:avatarPos.height,
               imageRendering:'pixelated',pointerEvents:'none',
-              zIndex:8  // below most objects so they render in front
+              zIndex:8
             }}/>
 
-          {/* Placed objects — depth sorted */}
           {sorted.map(({o,i})=>{
-            if(!S[o.sprite]) return null;  // skip if sprite not in table
+            if(!S[o.sprite]) return null;
             const pos=getObjPos(o.sprite,o.lx,o.ly);
             const iSel=sel===i,isDrag=drag===i;
             return(
@@ -433,24 +475,21 @@ export default function App() {
                     ?'drop-shadow(0 0 4px rgba(255,220,60,1)) drop-shadow(0 0 8px rgba(255,200,40,.7))'
                     :'drop-shadow(1px 3px 2px rgba(0,0,0,.3))',
                   transition:isDrag?'none':'filter .15s',
-                  zIndex:10+touchOrder.indexOf(o.iid),  // last touched = highest z
+                  zIndex:10+touchOrder.indexOf(o.iid),
                   opacity:1,
                 }}/>
             );
           })}
 
-          {/* Lamp — always on top */}
           {(()=>{ const s=S['Room - Lamp.png']; return(
             <img src={sp('Room - Lamp.png')} alt="" draggable={false}
               style={{position:'absolute',left:s.ox,top:s.oy,width:s.w,height:s.h,
                 imageRendering:'pixelated',pointerEvents:'none',zIndex:250}}/>
           );})()}
 
-          {/* Night overlay */}
           <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:260,
             background:`rgba(4,10,24,${n*.3})`,transition:'background 1.5s'}}/>
 
-          {/* Selection panel */}
           {selObj&&(
             <div onClick={e=>e.stopPropagation()}
               style={{position:'absolute',bottom:10,left:10,zIndex:300,
@@ -469,7 +508,6 @@ export default function App() {
             fontSize:8,color:dCol,pointerEvents:'none'}}>{placed.length}/{OBJECTS_DEF.length}</div>
         </div>
 
-        {/* Blinds + weather */}
         <div style={{background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,
           padding:'8px 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:5}}>
           <div style={{fontSize:7,color:dCol,letterSpacing:1}}>BLINDS</div>
@@ -480,13 +518,12 @@ export default function App() {
           <div style={{fontSize:7,color:dCol}}>{blinds}%</div>
           <div style={{fontSize:18,cursor:'pointer',marginTop:2,lineHeight:1}}
             title="toggle rain"
-            onClick={()=>setWeather(w=>w==='clear'?'rain':'clear')}>
+            onClick={toggleWeather}>
             {weather==='rain'?'🌧':'☀️'}
           </div>
         </div>
       </div>
 
-      {/* Tray */}
       <div style={{background:pBg,border:`1px solid ${pBdr}`,borderRadius:4,width:RW+140,
         display:'flex',gap:5,flexWrap:'wrap',alignItems:'center',padding:'8px 12px'}}>
         <div style={{fontSize:8,color:dCol,letterSpacing:2,marginRight:5}}>OBJECTS</div>
@@ -518,7 +555,6 @@ export default function App() {
         })}
       </div>
 
-      {/* Tray ghost */}
       {trayDrag&&(
         <div style={{position:'fixed',left:trayDrag.x-30,top:trayDrag.y-24,
           width:60,height:48,display:'flex',alignItems:'center',justifyContent:'center',

@@ -14,9 +14,9 @@ const wss = new WebSocketServer({ port: WS_PORT });
 
 // OSC string: pad to 4-byte boundary, null-terminated
 function oscString(str) {
-  const buf = Buffer.from(str + '\0');
-  const pad = 4 - (buf.length % 4);
-  return pad < 4 ? Buffer.concat([buf, Buffer.alloc(pad)]) : buf;
+  const buf = Buffer.from(String(str) + '\0');
+  const remainder = buf.length % 4;
+  return remainder ? Buffer.concat([buf, Buffer.alloc(4 - remainder)]) : buf;
 }
 
 // OSC float32
@@ -27,19 +27,17 @@ function oscFloat(val) {
 }
 
 // Build an OSC message from address + args
-// FIX: always send numbers as float (f) — MaxMSP unpack 0. 0. 0. expects floats
-// Sending active as int (i) caused expr $i3 to misread the active flag
+// Always send numeric values as float so MaxMSP unpack 0. 0. 0. receives floats.
 function buildOSC(address, args) {
   let typeTag = ',';
   const argBuffers = [];
 
   for (const arg of args) {
-    const num = parseFloat(arg);
-    if (isNaN(num)) {
+    const num = Number(arg);
+    if (Number.isNaN(num)) {
       typeTag += 's';
       argBuffers.push(oscString(arg));
     } else {
-      // Always float — MaxMSP unpack 0. 0. 0. and expr $f3 require floats
       typeTag += 'f';
       argBuffers.push(oscFloat(num));
     }
@@ -48,26 +46,31 @@ function buildOSC(address, args) {
   return Buffer.concat([
     oscString(address),
     oscString(typeTag),
-    ...argBuffers
+    ...argBuffers,
   ]);
 }
 
 wss.on('connection', (ws) => {
   console.log('[bridge] React connected');
+
   ws.on('message', (data) => {
     const msg = data.toString().trim();
-    const parts = msg.split(' ');
+    if (!msg) return;
+
+    const parts = msg.split(/\s+/);
     const address = parts[0];
     const args = parts.slice(1);
-    
+
     try {
       const packet = buildOSC(address, args);
       udp.send(packet, 0, packet.length, UDP_PORT, UDP_HOST);
-      console.log(`[bridge] → ${msg}`);
+      console.log('[bridge] raw:', msg);
+      console.log('[bridge] sent:', address, args);
     } catch (e) {
       console.log('[bridge] error:', e.message);
     }
   });
+
   ws.on('close', () => console.log('[bridge] React disconnected'));
 });
 

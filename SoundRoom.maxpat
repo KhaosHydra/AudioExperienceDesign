@@ -39,15 +39,16 @@
           "id": "obj-2",
           "maxclass": "newobj",
           "numinlets": 14,
-          "numoutlets": 14,
+          "numoutlets": 15,
           "patching_rect": [
             50,
             70,
             1871.0,
             22
           ],
-          "text": "route /soundroom/lamp /soundroom/blinds /soundroom/weather /soundroom/time /soundroom/layer/melody /soundroom/layer/melody2 /soundroom/layer/harmony /soundroom/layer/bass /soundroom/layer/rhythm /soundroom/layer/pad /soundroom/layer/texture /soundroom/layer/arp /soundroom/layer/sparkle",
+          "text": "route /soundroom/lamp /soundroom/blinds /soundroom/weather /soundroom/time /soundroom/layer/melody /soundroom/layer/melody2 /soundroom/layer/harmony /soundroom/layer/bass /soundroom/layer/rhythm /soundroom/layer/pad /soundroom/layer/texture /soundroom/layer/arp /soundroom/layer/sparkle /soundroom/speed",
           "outlettype": [
+            "",
             "",
             "",
             "",
@@ -14098,6 +14099,36 @@
           ],
           "text": "delay 3000"
         }
+      },
+      {
+        "box": {
+          "id": "fix_print_osc",
+          "maxclass": "newobj",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            325.0,
+            30.0,
+            72.0,
+            22.0
+          ],
+          "text": "print osc_in"
+        }
+      },
+      {
+        "box": {
+          "id": "fix_speed_send",
+          "maxclass": "newobj",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "patching_rect": [
+            1825.0,
+            130.0,
+            74.0,
+            22.0
+          ],
+          "text": "s speed_val"
+        }
       }
     ],
     "lines": [
@@ -16053,6 +16084,30 @@
           ],
           "destination": [
             "msync_zero",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-1",
+            0
+          ],
+          "destination": [
+            "fix_print_osc",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "obj-2",
+            13
+          ],
+          "destination": [
+            "fix_speed_send",
             0
           ]
         }
