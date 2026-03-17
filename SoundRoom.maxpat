@@ -766,7 +766,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"1 Piano Main.wav\""
+                  "text": "read \"1 Piano Main.aif\""
                 }
               },
               {
@@ -821,7 +821,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"5 Melody 1.wav\""
+                  "text": "read \"5 Melody 1.aif\""
                 }
               },
               {
@@ -1058,7 +1058,7 @@
                     209,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 0)"
+                  "text": "expr $f1 * $f2 * ($i3 == 0)"
                 }
               },
               {
@@ -1185,7 +1185,7 @@
                     272,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 100) * 0.72"
+                  "text": "expr $f1 * $f2 * ($i3 == 100) * 0.72"
                 }
               },
               {
@@ -1344,6 +1344,42 @@
                     22
                   ],
                   "text": "send~ master_R"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_r",
+                  "maxclass": "newobj",
+                  "numinlets": 0,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    10,
+                    80,
+                    22
+                  ],
+                  "text": "r sync_all"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_m",
+                  "maxclass": "message",
+                  "numinlets": 2,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    38,
+                    28,
+                    22
+                  ],
+                  "text": "0."
                 }
               }
             ],
@@ -1719,6 +1755,42 @@
                     0
                   ]
                 }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_r",
+                    0
+                  ],
+                  "destination": [
+                    "sync_m",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s10",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s14",
+                    0
+                  ]
+                }
               }
             ]
           },
@@ -1787,7 +1859,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"8 Second Melody.wav\""
+                  "text": "read \"3 Melody.aiff\""
                 }
               },
               {
@@ -1842,7 +1914,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"3 Synth Sparkle.wav\""
+                  "text": "read \"3 Synth Sparkle.aif\""
                 }
               },
               {
@@ -2079,7 +2151,7 @@
                     209,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 0)"
+                  "text": "expr $f1 * $f2 * ($i3 == 0)"
                 }
               },
               {
@@ -2206,7 +2278,7 @@
                     272,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 100) * 0.72"
+                  "text": "expr $f1 * $f2 * ($i3 == 100) * 0.72"
                 }
               },
               {
@@ -2365,6 +2437,42 @@
                     22
                   ],
                   "text": "send~ master_R"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_r",
+                  "maxclass": "newobj",
+                  "numinlets": 0,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    10,
+                    80,
+                    22
+                  ],
+                  "text": "r sync_all"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_m",
+                  "maxclass": "message",
+                  "numinlets": 2,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    38,
+                    28,
+                    22
+                  ],
+                  "text": "0."
                 }
               }
             ],
@@ -2740,6 +2848,42 @@
                     0
                   ]
                 }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_r",
+                    0
+                  ],
+                  "destination": [
+                    "sync_m",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s10",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s14",
+                    0
+                  ]
+                }
               }
             ]
           },
@@ -2808,7 +2952,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"3 Piano Melody.wav\""
+                  "text": "read \"7 Drone.aif\""
                 }
               },
               {
@@ -2863,7 +3007,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"6 Pad Low.wav\""
+                  "text": "read \"6 Pad Low.aif\""
                 }
               },
               {
@@ -3100,7 +3244,7 @@
                     209,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 0)"
+                  "text": "expr $f1 * $f2 * ($i3 == 0)"
                 }
               },
               {
@@ -3227,7 +3371,7 @@
                     272,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 100) * 0.72"
+                  "text": "expr $f1 * $f2 * ($i3 == 100) * 0.72"
                 }
               },
               {
@@ -3386,6 +3530,42 @@
                     22
                   ],
                   "text": "send~ master_R"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_r",
+                  "maxclass": "newobj",
+                  "numinlets": 0,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    10,
+                    80,
+                    22
+                  ],
+                  "text": "r sync_all"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_m",
+                  "maxclass": "message",
+                  "numinlets": 2,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    38,
+                    28,
+                    22
+                  ],
+                  "text": "0."
                 }
               }
             ],
@@ -3761,6 +3941,42 @@
                     0
                   ]
                 }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_r",
+                    0
+                  ],
+                  "destination": [
+                    "sync_m",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s10",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s14",
+                    0
+                  ]
+                }
               }
             ]
           },
@@ -3829,7 +4045,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"2 Piano Bass.wav\""
+                  "text": "read \"2 Piano Bass.aif\""
                 }
               },
               {
@@ -3884,7 +4100,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"4 Bass.wav\""
+                  "text": "read \"4 Bass.aif\""
                 }
               },
               {
@@ -4121,7 +4337,7 @@
                     209,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 0)"
+                  "text": "expr $f1 * $f2 * ($i3 == 0)"
                 }
               },
               {
@@ -4248,7 +4464,7 @@
                     272,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 100) * 0.72"
+                  "text": "expr $f1 * $f2 * ($i3 == 100) * 0.72"
                 }
               },
               {
@@ -4407,6 +4623,42 @@
                     22
                   ],
                   "text": "send~ master_R"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_r",
+                  "maxclass": "newobj",
+                  "numinlets": 0,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    10,
+                    80,
+                    22
+                  ],
+                  "text": "r sync_all"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_m",
+                  "maxclass": "message",
+                  "numinlets": 2,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    38,
+                    28,
+                    22
+                  ],
+                  "text": "0."
                 }
               }
             ],
@@ -4782,6 +5034,42 @@
                     0
                   ]
                 }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_r",
+                    0
+                  ],
+                  "destination": [
+                    "sync_m",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s10",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s14",
+                    0
+                  ]
+                }
               }
             ]
           },
@@ -4850,7 +5138,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"7 Drone.wav\""
+                  "text": "read \"6 Violin.aif\""
                 }
               },
               {
@@ -4905,7 +5193,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"1 Synth Appregio Low.wav\""
+                  "text": "read \"1 Synth Appregio Low.aif\""
                 }
               },
               {
@@ -5142,7 +5430,7 @@
                     209,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 0)"
+                  "text": "expr $f1 * $f2 * ($i3 == 0)"
                 }
               },
               {
@@ -5269,7 +5557,7 @@
                     272,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 100) * 0.72"
+                  "text": "expr $f1 * $f2 * ($i3 == 100) * 0.72"
                 }
               },
               {
@@ -5428,6 +5716,42 @@
                     22
                   ],
                   "text": "send~ master_R"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_r",
+                  "maxclass": "newobj",
+                  "numinlets": 0,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    10,
+                    80,
+                    22
+                  ],
+                  "text": "r sync_all"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_m",
+                  "maxclass": "message",
+                  "numinlets": 2,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    38,
+                    28,
+                    22
+                  ],
+                  "text": "0."
                 }
               }
             ],
@@ -5803,6 +6127,42 @@
                     0
                   ]
                 }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_r",
+                    0
+                  ],
+                  "destination": [
+                    "sync_m",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s10",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s14",
+                    0
+                  ]
+                }
               }
             ]
           },
@@ -5871,7 +6231,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"6 Violin.wav\""
+                  "text": "read \"4 Sparkle.aif\""
                 }
               },
               {
@@ -5926,7 +6286,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"9 Violin.wav\""
+                  "text": "read \"9 Violin.aif\""
                 }
               },
               {
@@ -6163,7 +6523,7 @@
                     209,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 0)"
+                  "text": "expr $f1 * $f2 * ($i3 == 0)"
                 }
               },
               {
@@ -6290,7 +6650,7 @@
                     272,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 100) * 0.72"
+                  "text": "expr $f1 * $f2 * ($i3 == 100) * 0.72"
                 }
               },
               {
@@ -6449,6 +6809,42 @@
                     22
                   ],
                   "text": "send~ master_R"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_r",
+                  "maxclass": "newobj",
+                  "numinlets": 0,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    10,
+                    80,
+                    22
+                  ],
+                  "text": "r sync_all"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_m",
+                  "maxclass": "message",
+                  "numinlets": 2,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    38,
+                    28,
+                    22
+                  ],
+                  "text": "0."
                 }
               }
             ],
@@ -6824,6 +7220,42 @@
                     0
                   ]
                 }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_r",
+                    0
+                  ],
+                  "destination": [
+                    "sync_m",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s10",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s14",
+                    0
+                  ]
+                }
               }
             ]
           },
@@ -6892,7 +7324,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"4 Sparkle.wav\""
+                  "text": "read \"4 Sparkle.aif\""
                 }
               },
               {
@@ -6947,7 +7379,7 @@
                     200,
                     22
                   ],
-                  "text": "read \"3 Synth Sparkle.wav\""
+                  "text": "read \"3 Synth Sparkle.aif\""
                 }
               },
               {
@@ -7184,7 +7616,7 @@
                     209,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 0)"
+                  "text": "expr $f1 * $f2 * ($i3 == 0)"
                 }
               },
               {
@@ -7311,7 +7743,7 @@
                     272,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 100) * 0.72"
+                  "text": "expr $f1 * $f2 * ($i3 == 100) * 0.72"
                 }
               },
               {
@@ -7470,6 +7902,42 @@
                     22
                   ],
                   "text": "send~ master_R"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_r",
+                  "maxclass": "newobj",
+                  "numinlets": 0,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    10,
+                    80,
+                    22
+                  ],
+                  "text": "r sync_all"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_m",
+                  "maxclass": "message",
+                  "numinlets": 2,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    38,
+                    28,
+                    22
+                  ],
+                  "text": "0."
                 }
               }
             ],
@@ -7845,6 +8313,42 @@
                     0
                   ]
                 }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_r",
+                    0
+                  ],
+                  "destination": [
+                    "sync_m",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s10",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "s14",
+                    0
+                  ]
+                }
               }
             ]
           },
@@ -7913,7 +8417,7 @@
                     190,
                     22
                   ],
-                  "text": "read \"8 Piano Chord 1.wav\""
+                  "text": "read \"8 Piano Chord 1.aif\""
                 }
               },
               {
@@ -8074,7 +8578,7 @@
                     185.5,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 0)",
+                  "text": "expr $f1 * $f2 * ($i3 == 0)",
                   "outlettype": [
                     ""
                   ]
@@ -8168,7 +8672,7 @@
                     190,
                     22
                   ],
-                  "text": "read \"9 Piano Chord 2.wav\""
+                  "text": "read \"9 Piano Chord 2.aif\""
                 }
               },
               {
@@ -8329,7 +8833,7 @@
                     185.5,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 0)",
+                  "text": "expr $f1 * $f2 * ($i3 == 0)",
                   "outlettype": [
                     ""
                   ]
@@ -8423,7 +8927,7 @@
                     134,
                     22
                   ],
-                  "text": "read \"10 Drum.wav\""
+                  "text": "read \"7 Clap.aif\""
                 }
               },
               {
@@ -8584,7 +9088,7 @@
                     244.0,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 100) * 0.72",
+                  "text": "expr $f1 * $f2 * ($i3 == 100) * 0.72",
                   "outlettype": [
                     ""
                   ]
@@ -8678,7 +9182,7 @@
                     127,
                     22
                   ],
-                  "text": "read \"7 Clap.wav\""
+                  "text": "read \"7 Clap.aif\""
                 }
               },
               {
@@ -8839,7 +9343,7 @@
                     244.0,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 100) * 0.72",
+                  "text": "expr $f1 * $f2 * ($i3 == 100) * 0.72",
                   "outlettype": [
                     ""
                   ]
@@ -9037,6 +9541,42 @@
                     22
                   ],
                   "text": "send~ master_R"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_r",
+                  "maxclass": "newobj",
+                  "numinlets": 0,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    10,
+                    80,
+                    22
+                  ],
+                  "text": "r sync_all"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_m",
+                  "maxclass": "message",
+                  "numinlets": 2,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    38,
+                    28,
+                    22
+                  ],
+                  "text": "0."
                 }
               }
             ],
@@ -9748,6 +10288,66 @@
                     0
                   ]
                 }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_r",
+                    0
+                  ],
+                  "destination": [
+                    "sync_m",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "r7",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "r21",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "r35",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "r49",
+                    0
+                  ]
+                }
               }
             ]
           },
@@ -9816,7 +10416,7 @@
                     197,
                     22
                   ],
-                  "text": "read \"5 Piano Appregio.wav\""
+                  "text": "read \"5 Piano Appregio.aif\""
                 }
               },
               {
@@ -9977,7 +10577,7 @@
                     185.5,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 0)",
+                  "text": "expr $f1 * $f2 * ($i3 == 0)",
                   "outlettype": [
                     ""
                   ]
@@ -10071,7 +10671,7 @@
                     232,
                     22
                   ],
-                  "text": "read \"2 Synth Appregio High.wav\""
+                  "text": "read \"2 Synth Appregio High.aif\""
                 }
               },
               {
@@ -10232,7 +10832,7 @@
                     244.0,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 100) * 0.72",
+                  "text": "expr $f1 * $f2 * ($i3 == 100) * 0.72",
                   "outlettype": [
                     ""
                   ]
@@ -10326,7 +10926,7 @@
                     183,
                     22
                   ],
-                  "text": "read \"8 Synth Rhythm.wav\""
+                  "text": "read \"8 Synth Rhythm.aif\""
                 }
               },
               {
@@ -10487,7 +11087,7 @@
                     244.0,
                     22
                   ],
-                  "text": "expr $f1 * $f2 * ($f3 == 100) * 0.72",
+                  "text": "expr $f1 * $f2 * ($i3 == 100) * 0.72",
                   "outlettype": [
                     ""
                   ]
@@ -10667,6 +11267,42 @@
                     22
                   ],
                   "text": "send~ master_R"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_r",
+                  "maxclass": "newobj",
+                  "numinlets": 0,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    10,
+                    80,
+                    22
+                  ],
+                  "text": "r sync_all"
+                }
+              },
+              {
+                "box": {
+                  "id": "sync_m",
+                  "maxclass": "message",
+                  "numinlets": 2,
+                  "numoutlets": 1,
+                  "outlettype": [
+                    ""
+                  ],
+                  "patching_rect": [
+                    600,
+                    38,
+                    28,
+                    22
+                  ],
+                  "text": "0."
                 }
               }
             ],
@@ -11210,6 +11846,54 @@
                     0
                   ]
                 }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_r",
+                    0
+                  ],
+                  "destination": [
+                    "sync_m",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "r7",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "r21",
+                    0
+                  ]
+                }
+              },
+              {
+                "patchline": {
+                  "source": [
+                    "sync_m",
+                    0
+                  ],
+                  "destination": [
+                    "r35",
+                    0
+                  ]
+                }
               }
             ]
           },
@@ -11324,7 +12008,7 @@
             116.0,
             22
           ],
-          "text": "lores~ 20000 0.7",
+          "text": "lores~ 20000 0.0",
           "outlettype": [
             "signal"
           ]
@@ -11342,7 +12026,7 @@
             116.0,
             22
           ],
-          "text": "lores~ 20000 0.7",
+          "text": "lores~ 20000 0.0",
           "outlettype": [
             "signal"
           ]
@@ -11434,7 +12118,7 @@
             116.0,
             22
           ],
-          "text": "lores~ 20000 0.5",
+          "text": "lores~ 20000 0.0",
           "outlettype": [
             "signal"
           ]
@@ -11452,7 +12136,7 @@
             116.0,
             22
           ],
-          "text": "lores~ 20000 0.5",
+          "text": "lores~ 20000 0.0",
           "outlettype": [
             "signal"
           ]
@@ -11488,7 +12172,7 @@
             122.5,
             22
           ],
-          "text": "scale 0 100 1. 3.",
+          "text": "scale 0 100 20000 6000",
           "outlettype": [
             ""
           ]
@@ -11506,7 +12190,7 @@
             77.0,
             22
           ],
-          "text": "overdrive~",
+          "text": "*~ 1.",
           "outlettype": [
             "signal"
           ]
@@ -11524,7 +12208,7 @@
             77.0,
             22
           ],
-          "text": "overdrive~",
+          "text": "*~ 1.",
           "outlettype": [
             "signal"
           ]
@@ -11560,7 +12244,7 @@
             142.0,
             22
           ],
-          "text": "scale 0 100 0.17 0.7",
+          "text": "scale 0 100 0.22 0.78",
           "outlettype": [
             ""
           ]
@@ -11596,7 +12280,7 @@
             90.0,
             22
           ],
-          "text": "line~ 0.7 50",
+          "text": "line~ 0.82 50",
           "outlettype": [
             "signal",
             "bang"
@@ -11615,7 +12299,7 @@
             90.0,
             22
           ],
-          "text": "line~ 0.7 50",
+          "text": "line~ 0.82 50",
           "outlettype": [
             "signal",
             "bang"
@@ -12827,7 +13511,7 @@
             30,
             22
           ],
-          "text": "5"
+          "text": "0"
         }
       },
       {
@@ -12909,6 +13593,510 @@
             22
           ],
           "text": "s time_val"
+        }
+      },
+      {
+        "box": {
+          "id": "mwarm_L",
+          "maxclass": "newobj",
+          "numinlets": 3,
+          "numoutlets": 1,
+          "outlettype": [
+            "signal"
+          ],
+          "patching_rect": [
+            50,
+            513,
+            120,
+            22
+          ],
+          "text": "lores~ 20000 0.0"
+        }
+      },
+      {
+        "box": {
+          "id": "mwarm_R",
+          "maxclass": "newobj",
+          "numinlets": 3,
+          "numoutlets": 1,
+          "outlettype": [
+            "signal"
+          ],
+          "patching_rect": [
+            230,
+            513,
+            120,
+            22
+          ],
+          "text": "lores~ 20000 0.0"
+        }
+      },
+      {
+        "box": {
+          "id": "mbl_lineL",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            50,
+            435,
+            50,
+            22
+          ],
+          "text": "line"
+        }
+      },
+      {
+        "box": {
+          "id": "mbl_lineR",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            230,
+            435,
+            50,
+            22
+          ],
+          "text": "line"
+        }
+      },
+      {
+        "box": {
+          "id": "mwe_lineL",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            50,
+            527,
+            50,
+            22
+          ],
+          "text": "line"
+        }
+      },
+      {
+        "box": {
+          "id": "mwe_lineR",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            230,
+            527,
+            50,
+            22
+          ],
+          "text": "line"
+        }
+      },
+      {
+        "box": {
+          "id": "mlamp_lineL",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            50,
+            508,
+            50,
+            22
+          ],
+          "text": "line"
+        }
+      },
+      {
+        "box": {
+          "id": "mlamp_lineR",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            230,
+            508,
+            50,
+            22
+          ],
+          "text": "line"
+        }
+      },
+      {
+        "box": {
+          "id": "mbl_packL",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            50,
+            420,
+            90,
+            22
+          ],
+          "text": "pack 0. 800"
+        }
+      },
+      {
+        "box": {
+          "id": "mbl_packR",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            230,
+            420,
+            90,
+            22
+          ],
+          "text": "pack 0. 800"
+        }
+      },
+      {
+        "box": {
+          "id": "mwe_packL",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            50,
+            512,
+            100,
+            22
+          ],
+          "text": "pack 0. 1200"
+        }
+      },
+      {
+        "box": {
+          "id": "mwe_packR",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            230,
+            512,
+            100,
+            22
+          ],
+          "text": "pack 0. 1200"
+        }
+      },
+      {
+        "box": {
+          "id": "mlamp_packL",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            50,
+            494,
+            90,
+            22
+          ],
+          "text": "pack 0. 600"
+        }
+      },
+      {
+        "box": {
+          "id": "mlamp_packR",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            230,
+            494,
+            90,
+            22
+          ],
+          "text": "pack 0. 600"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_tv",
+          "maxclass": "newobj",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            310,
+            370,
+            80,
+            22
+          ],
+          "text": "r time_val"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_chg",
+          "maxclass": "newobj",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            310,
+            395,
+            55,
+            22
+          ],
+          "text": "change"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_zero",
+          "maxclass": "message",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            190,
+            420,
+            28,
+            22
+          ],
+          "text": "0."
+        }
+      },
+      {
+        "box": {
+          "id": "msync_send",
+          "maxclass": "newobj",
+          "numinlets": 1,
+          "numoutlets": 0,
+          "outlettype": [],
+          "patching_rect": [
+            190,
+            448,
+            80,
+            22
+          ],
+          "text": "s sync_all"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_r_tv",
+          "maxclass": "newobj",
+          "numinlets": 0,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            430,
+            360,
+            80,
+            22
+          ],
+          "text": "r time_val"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_sel",
+          "maxclass": "newobj",
+          "numinlets": 3,
+          "numoutlets": 3,
+          "outlettype": [
+            "bang",
+            "bang",
+            ""
+          ],
+          "patching_rect": [
+            430,
+            385,
+            65,
+            22
+          ],
+          "text": "sel 0 100"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_metro_d",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            "bang"
+          ],
+          "patching_rect": [
+            430,
+            415,
+            100,
+            22
+          ],
+          "text": "metro 48000"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_metro_n",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            "bang"
+          ],
+          "patching_rect": [
+            560,
+            415,
+            100,
+            22
+          ],
+          "text": "metro 17454"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_stop_d",
+          "maxclass": "message",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            430,
+            440,
+            25,
+            22
+          ],
+          "text": "0"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_stop_n",
+          "maxclass": "message",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            560,
+            440,
+            25,
+            22
+          ],
+          "text": "0"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_lb2",
+          "maxclass": "newobj",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "outlettype": [
+            "bang"
+          ],
+          "patching_rect": [
+            430,
+            330,
+            70,
+            22
+          ],
+          "text": "loadbang"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_ld_0",
+          "maxclass": "message",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            ""
+          ],
+          "patching_rect": [
+            430,
+            355,
+            25,
+            22
+          ],
+          "text": "0"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_lb3",
+          "maxclass": "newobj",
+          "numinlets": 1,
+          "numoutlets": 1,
+          "outlettype": [
+            "bang"
+          ],
+          "patching_rect": [
+            560,
+            330,
+            70,
+            22
+          ],
+          "text": "loadbang"
+        }
+      },
+      {
+        "box": {
+          "id": "msync_dly3",
+          "maxclass": "newobj",
+          "numinlets": 2,
+          "numoutlets": 1,
+          "outlettype": [
+            "bang"
+          ],
+          "patching_rect": [
+            560,
+            360,
+            80,
+            22
+          ],
+          "text": "delay 3000"
         }
       }
     ],
@@ -13420,18 +14608,6 @@
       {
         "patchline": {
           "source": [
-            "m701",
-            0
-          ],
-          "destination": [
-            "m702",
-            0
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
             "obj-406",
             0
           ],
@@ -13450,30 +14626,6 @@
           "destination": [
             "m704",
             0
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
-            "m702",
-            0
-          ],
-          "destination": [
-            "m703",
-            1
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
-            "m702",
-            0
-          ],
-          "destination": [
-            "m704",
-            1
           ]
         }
       },
@@ -13540,108 +14692,12 @@
       {
         "patchline": {
           "source": [
-            "m712",
-            0
-          ],
-          "destination": [
-            "m714",
-            1
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
-            "m713",
-            0
-          ],
-          "destination": [
-            "m714",
-            1
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
-            "m712",
-            0
-          ],
-          "destination": [
-            "m715",
-            1
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
-            "m713",
-            0
-          ],
-          "destination": [
-            "m715",
-            1
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
             "m720",
             0
           ],
           "destination": [
             "m721",
             0
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
-            "m714",
-            0
-          ],
-          "destination": [
-            "m722",
-            0
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
-            "m715",
-            0
-          ],
-          "destination": [
-            "m723",
-            0
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
-            "m721",
-            0
-          ],
-          "destination": [
-            "m722",
-            1
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
-            "m721",
-            0
-          ],
-          "destination": [
-            "m723",
-            1
           ]
         }
       },
@@ -13738,30 +14794,6 @@
           "destination": [
             "m736",
             1
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
-            "m735",
-            0
-          ],
-          "destination": [
-            "m740",
-            0
-          ]
-        }
-      },
-      {
-        "patchline": {
-          "source": [
-            "m736",
-            0
-          ],
-          "destination": [
-            "m741",
-            0
           ]
         }
       },
@@ -14529,6 +15561,498 @@
           ],
           "destination": [
             "lbs_tv",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "m735",
+            0
+          ],
+          "destination": [
+            "m740",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "m736",
+            0
+          ],
+          "destination": [
+            "m741",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "m714",
+            0
+          ],
+          "destination": [
+            "mwarm_L",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mwarm_L",
+            0
+          ],
+          "destination": [
+            "m722",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mwarm_R",
+            0
+          ],
+          "destination": [
+            "m723",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "m715",
+            0
+          ],
+          "destination": [
+            "mwarm_R",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "m701",
+            0
+          ],
+          "destination": [
+            "mbl_packL",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "m701",
+            0
+          ],
+          "destination": [
+            "mbl_packR",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mbl_packL",
+            0
+          ],
+          "destination": [
+            "mbl_lineL",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mbl_packR",
+            0
+          ],
+          "destination": [
+            "mbl_lineR",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mbl_lineL",
+            0
+          ],
+          "destination": [
+            "m703",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mbl_lineR",
+            0
+          ],
+          "destination": [
+            "m704",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "m712",
+            0
+          ],
+          "destination": [
+            "mwe_packL",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "m712",
+            0
+          ],
+          "destination": [
+            "mwe_packR",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "m713",
+            0
+          ],
+          "destination": [
+            "mwe_packL",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "m713",
+            0
+          ],
+          "destination": [
+            "mwe_packR",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mwe_packL",
+            0
+          ],
+          "destination": [
+            "mwe_lineL",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mwe_packR",
+            0
+          ],
+          "destination": [
+            "mwe_lineR",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mwe_lineL",
+            0
+          ],
+          "destination": [
+            "m714",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mwe_lineR",
+            0
+          ],
+          "destination": [
+            "m715",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "m721",
+            0
+          ],
+          "destination": [
+            "mlamp_packL",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "m721",
+            0
+          ],
+          "destination": [
+            "mlamp_packR",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mlamp_packL",
+            0
+          ],
+          "destination": [
+            "mlamp_lineL",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mlamp_packR",
+            0
+          ],
+          "destination": [
+            "mlamp_lineR",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mlamp_lineL",
+            0
+          ],
+          "destination": [
+            "mwarm_L",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "mlamp_lineR",
+            0
+          ],
+          "destination": [
+            "mwarm_R",
+            1
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_zero",
+            0
+          ],
+          "destination": [
+            "msync_send",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_tv",
+            0
+          ],
+          "destination": [
+            "msync_chg",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_r_tv",
+            0
+          ],
+          "destination": [
+            "msync_sel",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_sel",
+            0
+          ],
+          "destination": [
+            "msync_stop_n",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_stop_n",
+            0
+          ],
+          "destination": [
+            "msync_metro_n",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_sel",
+            0
+          ],
+          "destination": [
+            "msync_metro_d",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_sel",
+            1
+          ],
+          "destination": [
+            "msync_stop_d",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_stop_d",
+            0
+          ],
+          "destination": [
+            "msync_metro_d",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_sel",
+            1
+          ],
+          "destination": [
+            "msync_metro_n",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_metro_d",
+            0
+          ],
+          "destination": [
+            "msync_zero",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_metro_n",
+            0
+          ],
+          "destination": [
+            "msync_zero",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_lb2",
+            0
+          ],
+          "destination": [
+            "msync_ld_0",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_ld_0",
+            0
+          ],
+          "destination": [
+            "msync_sel",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_lb3",
+            0
+          ],
+          "destination": [
+            "msync_dly3",
+            0
+          ]
+        }
+      },
+      {
+        "patchline": {
+          "source": [
+            "msync_dly3",
+            0
+          ],
+          "destination": [
+            "msync_zero",
             0
           ]
         }
