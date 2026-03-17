@@ -24,28 +24,30 @@ const S = {
   'Room - Blinds.png':          {ox:383, oy:97,  w:95,  h:133},  // full blind incl. tassel
   'Room - Lamp.png':            {ox:230, oy:30,  w:52,  h:78},
   // Draggable objects
-  'Room - Bed.png':             {ox:189, oy:85,  w:170, h:128, anchorFx:0.50, anchorFy:0.98},
-  'Room - Bookshelf.png':       {ox:13,  oy:105, w:138, h:158, anchorFx:0.50, anchorFy:0.97},
-  'Room - Cat.png':             {ox:252, oy:131, w:51,  h:30,  anchorFx:0.50, anchorFy:0.99},
-  'Room - Coffee.png':          {ox:231, oy:283, w:19,  h:25,  anchorFx:0.50, anchorFy:0.99},
-  'Room - Duck teddy.png':      {ox:134, oy:189, w:31,  h:44,  anchorFx:0.50, anchorFy:0.98},
-  'Room - Frog Teddy.png':      {ox:54,  oy:229, w:33,  h:45,  anchorFx:0.50, anchorFy:0.98},
-  'Room - Plant oval base.png': {ox:136, oy:130, w:76,  h:68,  anchorFx:0.50, anchorFy:0.98},
-  'Room - Plant.png':           {ox:128, oy:238, w:76,  h:89,  anchorFx:0.50, anchorFy:0.98},
-  'Room - Speakers.png':        {ox:299, oy:159, w:57,  h:55,  anchorFx:0.50, anchorFy:0.95},
-  'Room - Table.png':           {ox:208, oy:245, w:164, h:131, anchorFx:0.50, anchorFy:0.97},
+  'Room - Bed.png': {ox:189, oy:85, w:170, h:128, anchorFx:0.4765, anchorFy:0.6328},
+  'Room - Bookshelf.png': {ox:13, oy:105, w:138, h:158, anchorFx:0.4638, anchorFy:0.981},
+  'Room - Coffee.png': {ox:231, oy:283, w:19, h:25, anchorFx:0.3684, anchorFy:0.96},
+  'Room - Cat.png': {ox:252, oy:131, w:51, h:30, anchorFx:0.5294, anchorFy:1},
+  'Room - Duck teddy.png': {ox:134, oy:189, w:31, h:44, anchorFx:0.5161, anchorFy:1},
+  'Room - Frog Teddy.png': {ox:54, oy:229, w:33, h:45, anchorFx:0.5152, anchorFy:0.9556},
+  'Room - Plant oval base.png': {ox:136, oy:130, w:76, h:68, anchorFx:0.4605, anchorFy:1},
+  'Room - Plant.png': {ox:128, oy:238, w:76, h:89, anchorFx:0.4737, anchorFy:0.9775},
+  'Room - Speakers.png': {ox:299, oy:159, w:57, h:55, anchorFx:0.4561, anchorFy:1},
+  'Room - Table.png': {ox:208, oy:245, w:164, h:131, anchorFx:0.9878, anchorFy:1},
   'Room - Vinyl Player.png':    {ox:302, oy:243, w:60,  h:43,  anchorFx:0.50, anchorFy:0.95},
   // Avatar — always visible, non-draggable, fixed centre-floor
   'Room - Avatar.png':          {ox:233, oy:168, w:43,  h:80,  anchorFx:0.50, anchorFy:0.99},
 };
 
+
 // ── Isometric floor projection ─────────────────────────────────────────────────
 const FLOOR = {
-  top:  {x:256, y:184},
-  left: {x:44,  y:295},
-  right:{x:468, y:295},
-  bot:  {x:256, y:375},
+  top:  {x:256, y:128},
+  left: {x:6, y:253},
+  right:{x:505, y:254},
+  bot:  {x:256, y:378},
 };
+
 function toScreen(lx, ly) {
   const {top,left,right,bot}=FLOOR;
   return {
@@ -69,6 +71,7 @@ function computeVol(lx,ly){const d=Math.sqrt((lx-.5)**2+(ly-.5)**2);return .15+.
 // Given sprite name + floor position, return {left,top,width,height} for absolute positioning
 function getObjPos(sprite, lx, ly) {
   const sp=S[sprite];
+  if(!sp) return {left:0,top:0,width:0,height:0};  // safety — unknown sprite
   const {sx,sy}=toScreen(lx,ly);
   const ax=sp.w*(sp.anchorFx??0.5);
   const ay=sp.h*(sp.anchorFy??0.98);
@@ -76,17 +79,20 @@ function getObjPos(sprite, lx, ly) {
 }
 
 // ── Object definitions ─────────────────────────────────────────────────────────
+// Coffee mug controls playback speed, not a musical layer
+const SPEED_OBJECT_ID = 'Coffee';
+
 const OBJECTS_DEF = [
   {id:'Bed',      sprite:'Room - Bed.png',           soundRole:'melody2', name:'Bed'},
   {id:'Bookshelf',sprite:'Room - Bookshelf.png',     soundRole:'bass',    name:'Bookshelf'},
   {id:'Cat',      sprite:'Room - Cat.png',           soundRole:'sparkle', name:'Cat'},
-  {id:'Coffee',   sprite:'Room - Coffee.png',        soundRole:'texture', name:'Coffee Mug'},
+  {id:'Coffee',   sprite:'Room - Coffee.png',        soundRole:null,      name:'Coffee Mug', isSpeed:true},
   {id:'Duck',     sprite:'Room - Duck teddy.png',    soundRole:'pad',     name:'Duck Teddy'},
   {id:'Frog',     sprite:'Room - Frog Teddy.png',    soundRole:'arp',     name:'Frog Teddy'},
-  {id:'Plant',    sprite:'Room - Plant oval base.png',soundRole:'harmony',name:'Plant'},
+  {id:'PlantOval',sprite:'Room - Plant oval base.png',soundRole:'harmony',name:'Plant (oval)'},
+  {id:'PlantBox', sprite:'Room - Plant.png',         soundRole:'texture', name:'Plant (box)'},
   {id:'Speakers', sprite:'Room - Speakers.png',      soundRole:'rhythm',  name:'Speakers'},
   {id:'Table',    sprite:'Room - Table.png',         soundRole:'melody',  name:'Table'},
-  {id:'Vinyl',    sprite:'Room - Vinyl Player.png',  soundRole:'bass',    name:'Vinyl Player'},
 ];
 
 // ── Dial ───────────────────────────────────────────────────────────────────────
@@ -130,6 +136,8 @@ export default function App() {
   const [drag,setDrag]=useState(null);
   const [dragPos,setDragPos]=useState({x:0,y:0});
   const [sel,setSel]=useState(null);
+  const [touchOrder,setTouchOrder]=useState([]); // iid order, last = on top
+  const [speed,setSpeed]=useState(1.0); // playback speed for coffee mug (0.5-2.0)
   const [lamp,setLamp]=useState(0);
   const [blinds,setBlinds]=useState(0);   // 0=fully open, 100=fully closed
   const [weather,setWeather]=useState('clear');
@@ -165,7 +173,9 @@ export default function App() {
   },[osc,blinds,lamp]);
 
   const sendAll=useCallback(()=>{
-    for(const{soundRole}of OBJECTS_DEF){
+    for(const def of OBJECTS_DEF){
+      const{soundRole}=def;
+      if(!soundRole) continue; // skip speed-control objects
       const o=placed.find(p=>p.soundRole===soundRole);
       if(o) osc.send(`/soundroom/layer/${soundRole}`,computePan(o.lx,o.ly).toFixed(3),computeVol(o.lx,o.ly).toFixed(3),'1.0');
       else if(soundRole==='harmony') osc.send('/soundroom/layer/harmony','0.0','0.15','1.0');
@@ -181,7 +191,20 @@ export default function App() {
   useEffect(()=>{if(!started)return;osc.send('/soundroom/blinds',blinds);},[blinds,started]);
   useEffect(()=>{if(!started)return;osc.send('/soundroom/lamp',lamp);},[lamp,started]);
   useEffect(()=>{if(!started)return;osc.send('/soundroom/weather',weather==='rain'?'1.0':'0.0');},[weather,started]);
-  useEffect(()=>{if(!started)return;sendAll();},[placed,started]);
+  useEffect(()=>{
+    if(!started)return;
+    sendAll();
+    // Coffee mug controls speed
+    const coffee=placed.find(p=>p.id==='Coffee');
+    if(coffee){
+      // Map lx position: left=slow(0.5), right=fast(2.0)
+      const spd=0.5+coffee.lx*1.5;
+      setSpeed(+spd.toFixed(2));
+      osc.send('/soundroom/speed',spd.toFixed(3));
+    } else {
+      osc.send('/soundroom/speed','1.0'); // reset to normal when removed
+    }
+  },[placed,started]);
   useEffect(()=>{
     if(!started||drag===null)return;
     const o=placed[drag];if(!o)return;
@@ -189,10 +212,15 @@ export default function App() {
   },[placed,drag,started]);
 
   // Drag placed objects
+  const bringToFront=useCallback((iid)=>{
+    setTouchOrder(prev=>[...prev.filter(x=>x!==iid), iid]);
+  },[]);
+
   const onObjPD=useCallback((e,i)=>{
     e.stopPropagation();e.preventDefault();
     setSel(i);setDrag(i);
-  },[]);
+    if(placed[i]) bringToFront(placed[i].iid);
+  },[placed,bringToFront]);
 
   useEffect(()=>{
     if(drag===null)return;
@@ -223,11 +251,16 @@ export default function App() {
         const rx=ue.clientX-r.left,ry=ue.clientY-r.top;
         if(rx>=0&&rx<=r.width&&ry>=0&&ry<=r.height){
           const rw=r.width/RW,rh=r.height/RH;
+          if(!rw||!rh) return;
           const{lx,ly}=fromScreen(rx/rw,ry/rh);
-          setPlaced(prev=>[...prev,{...trayDragRef.current,
-            lx:Math.max(0.05,Math.min(0.95,lx)),
-            ly:Math.max(0.05,Math.min(0.95,ly)),
-            iid:Date.now()+Math.random()}]);
+          if(isNaN(lx)||isNaN(ly)) return;
+          const newObj = {
+              ...trayDragRef.current,
+              lx: Math.max(0.05,Math.min(0.95,lx)),
+              ly: Math.max(0.05,Math.min(0.95,ly)),
+              iid: `${trayDragRef.current.id}_${Date.now()}`,
+            };
+            setPlaced(prev=>[...prev, newObj]);
         }
       }
       trayDragRef.current=null;setTrayDrag(null);
@@ -384,6 +417,7 @@ export default function App() {
 
           {/* Placed objects — depth sorted */}
           {sorted.map(({o,i})=>{
+            if(!S[o.sprite]) return null;  // skip if sprite not in table
             const pos=getObjPos(o.sprite,o.lx,o.ly);
             const iSel=sel===i,isDrag=drag===i;
             return(
@@ -399,7 +433,7 @@ export default function App() {
                     ?'drop-shadow(0 0 4px rgba(255,220,60,1)) drop-shadow(0 0 8px rgba(255,200,40,.7))'
                     :'drop-shadow(1px 3px 2px rgba(0,0,0,.3))',
                   transition:isDrag?'none':'filter .15s',
-                  zIndex:10+Math.round((o.lx+o.ly)*100),
+                  zIndex:10+touchOrder.indexOf(o.iid),  // last touched = highest z
                   opacity:1,
                 }}/>
             );
@@ -422,7 +456,9 @@ export default function App() {
               style={{position:'absolute',bottom:10,left:10,zIndex:300,
                 background:pBg,border:`1px solid ${pBdr}`,borderRadius:4,padding:'8px 12px'}}>
               <div style={{color:tCol,fontSize:11,marginBottom:2,letterSpacing:1}}>{selObj.name}</div>
-              <div style={{color:dCol,fontSize:8,marginBottom:6}}>{selObj.soundRole} · drag to move</div>
+              <div style={{color:dCol,fontSize:8,marginBottom:6}}>
+                {selObj.isSpeed ? `⚡ speed: ${speed}x (drag left=slow, right=fast)` : `${selObj.soundRole} · drag to move`}
+              </div>
               <button onClick={()=>removeObj(sel)}
                 style={{padding:'3px 10px',background:'rgba(160,50,30,.15)',
                   border:'1px solid rgba(180,70,40,.35)',color:'#d08870',
