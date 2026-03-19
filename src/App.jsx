@@ -20,6 +20,9 @@ import useOSC from './useOSC';
 
 // ─── CANVAS SIZE ─────────────────────────────────────────────────────────────
 const W = 512, H = 384;
+// Display scale — multiplies CSS size only; pixel resolution (W×H) stays fixed
+const SCALE = 1.45;
+const DW = Math.round(W * SCALE), DH = Math.round(H * SCALE); // 742 × 557
 const TILE_H_PX   = 16;
 const TILE_GRID   = 8;      // 8 logical tiles across the floor
 const SNAP_DIV    = 32;     // snap grid divisions (÷32 ≈ 15px per step)
@@ -33,8 +36,8 @@ const FLOOR = {
 };
 
 const LAMP_APEX  = { x: 255, y: 54 };
-const LAMP_ANGLE = 90;
-const LAMP_REACH = 120;
+const LAMP_ANGLE = 100;
+const LAMP_REACH = 560;
 
 const FAIRY_BULBS = [
   {x:247,y:33},{x:223,y:61},{x:192,y:69},{x:172,y:80},
@@ -66,14 +69,17 @@ const ANCHORS = {
 };
 
 // ─── KEYFRAMES ────────────────────────────────────────────────────────────────
+// Calibration convention: t=0 = high in sky, t=1 = low/setting (behind floor cover)
+// DAY  (dn=0): sun_t=0 (up),   moon_t=1 (down/hidden)
+// NIGHT(dn=1): sun_t=1 (down), moon_t=0 (up)
 const KEYFRAMES = {
   'Room - Sun.png': [
-    { t:0, lx:0.3906, ly:-0.2969, z:0 },
-    { t:1, lx:0.7188, ly:0.0313,  z:0 },
+    { t:0, lx:0.3906, ly:-0.2969, z:0 },   // HIGH: in sky (day)
+    { t:1, lx:0.7969, ly:0.1094,  z:0 },   // LOW:  setting behind floor cover (night)
   ],
   'Room - Moon.png': [
-    { t:0, lx:0.5781, ly:-0.2969, z:0 },
-    { t:1, lx:0.9688, ly:0.0938,  z:0 },
+    { t:0, lx:0.4738, ly:-0.2969, z:0 },   // HIGH: in sky (night) — shifted left
+    { t:1, lx:0.9738, ly:0.2188,  z:0 },   // LOW:  hidden behind floor cover (day)
   ],
   'Room - Blinds.png': [
     { t:0, lx:0.7422, ly:-0.0234, z:0   },
@@ -89,10 +95,12 @@ const LAYER_ORDER = [
   { name:'Room - Fairy lights - String.png', type:'static'      },
   { name:'Room - Fairy lights - Bulb.png',   type:'light'       },
   { name:'Room - Right Wall.png',            type:'room'        },
+  // Sky + celestials — after walls, before floor cover so they appear through window
   { name:'Room - Day sky.png',               type:'bg'          },
   { name:'Room - Sun.png',                   type:'animated'    },
   { name:'Room - Night sky.png',             type:'bg'          },
   { name:'Room - Moon.png',                  type:'animated'    },
+  // Floor cover draws AFTER sun/moon — occludes them as they set
   { name:'Room - Floor cover.png',           type:'room'        },
   { name:'Room - Window.png',                type:'static'      },
   { name:'Room - Blinds.png',                type:'interactive' },
@@ -387,7 +395,7 @@ function DebugPanel({
         <div style={hdr}>Snap Grid</div>
         <div style={row}>
           <span style={{ fontSize:8, color:dim }}>Div: ÷{snapDiv}</span>
-          <input type="range" min={4} max={32} step={4} value={snapDiv}
+          <input type="range" min={4} max={64} step={4} value={snapDiv}
             onChange={e=>onSnapDivChange(+e.target.value)}
             style={{ flex:1, marginLeft:8, accentColor:blu }}/>
         </div>
@@ -479,9 +487,10 @@ function DebugPanel({
 
 // ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const bgRef  = useRef(null);
-  const ltRef  = useRef(null);
-  const ovRef  = useRef(null);  // receives pointer events + debug overlay
+  const bgRef   = useRef(null);
+  const ltRef   = useRef(null);
+  const ovRef   = useRef(null);  // receives pointer events + debug overlay
+  const pageDivRef = useRef(null); // outer wrapper — background animated directly
   const imgs   = useRef({});
   const [imgsLoaded, setImgsLoaded] = useState(false);
 
@@ -491,7 +500,7 @@ export default function App() {
   const [drag,     setDrag]     = useState(null);
 
   // Debug panel sub-settings
-  const [snapDiv,    setSnapDiv]    = useState(32); // default ÷32 ≈ 15px
+  const [snapDiv,    setSnapDiv]    = useState(64); // default ÷64 ≈ 8px
   const [showFP,     setShowFP]     = useState(true);
   const [showCubes,  setShowCubes]  = useState(true);
 
@@ -507,15 +516,21 @@ export default function App() {
   const [blindsDragging, setBlindsDragging] = useState(false);
   const [dropBlocked,    setDropBlocked]    = useState(false); // flash red when collision
   const [mouseLXY, setMouseLXY] = useState(null); // live cursor lx/ly for debug
+  const [hovCelestial, setHovCelestial] = useState(false); // cursor over clickable sun/moon
 
   const blindsDragStartY = useRef(0);
   const blindsDragStartT = useRef(0);
+  const drawRef = useRef(null); // ref to latest draw fn for RAF use
+  const dragStartPos = useRef(null); // saved pos at drag start
+  const dragMoved = useRef(false);    // did pointer move enough to count as drag
   const trayDragRef      = useRef(null);
   const placedRef        = useRef(placed);
   useEffect(() => { placedRef.current = placed; }, [placed]);
 
   const transTimers = useRef([]);
   const prevNight   = useRef(false);
+  const dnTarget    = useRef(0);      // 0=day, 1=night — what we're animating toward
+  const dnRaf       = useRef(null);   // requestAnimationFrame id for dn transition
   const osc = useOSC();
   const isNight = dn >= 0.5;
   const CFMS = 5000;
@@ -524,6 +539,76 @@ export default function App() {
   const snapAndClampDyn = useCallback((lx, ly, sprite) => {
     return snapAndClamp(lx, ly, sprite, snapDiv);
   }, [snapDiv]);
+
+  // ── Day/Night animated transition ─────────────────────────────────────────────
+  // Drives animation via dnRef (no React re-render per frame).
+  // dnRef.current is the live 0→1 value used by draw().
+  // setDn is only called at start + end to update UI labels.
+  const dnRef = useRef(0);
+
+  const startDnTransition = useCallback((target) => {
+    dnTarget.current = target;
+    if (dnRaf.current) cancelAnimationFrame(dnRaf.current);
+    const DURATION = 5000; // ms — 5 second transition
+    const startVal = dnRef.current;
+    let startTs = null;
+    const step = (ts) => {
+      if (startTs === null) startTs = ts;
+      const elapsed = ts - startTs;
+      const t = Math.min(1, elapsed / DURATION);
+      const e = t < 0.5 ? 4*t*t*t : 1 - Math.pow(-2*t+2, 3) / 2;
+      const next = startVal + (target - startVal) * e;
+      dnRef.current = next;
+      // Direct canvas redraw each frame — no React state update
+      drawRef.current?.();
+      // Animate page background directly via DOM (no React re-render)
+      if (pageDivRef.current) {
+        const d = next;
+        // Day top/mid/bot:   #e8b84a / #c08030 / #8a5820
+        // Night top/mid/bot: #1a2a52 / #0c1830 / #060e1c
+        const it = (a,b) => Math.round(a + (b-a)*d);
+        const topR=it(232,26),  topG=it(184,42),  topB=it(74,82);
+        const midR=it(192,12),  midG=it(128,24),  midB=it(48,48);
+        const botR=it(138,6),   botG=it(88,14),   botB=it(32,28);
+        pageDivRef.current.style.background =
+          `radial-gradient(ellipse at 50% 0%, rgb(${topR},${topG},${topB}) 0%, rgb(${midR},${midG},${midB}) 55%, rgb(${botR},${botG},${botB}) 100%)`;
+      }
+      if (t < 1) {
+        dnRaf.current = requestAnimationFrame(step);
+      } else {
+        dnRef.current = target;
+        dnRaf.current = null;
+        setDn(target); // sync React state at end for UI
+      }
+    };
+    // Apply starting background immediately (avoids React snap on re-render)
+    if (pageDivRef.current) {
+      const d = startVal;
+      const it = (a,b) => Math.round(a + (b-a)*d);
+      const topR=it(232,26),topG=it(184,42),topB=it(74,82);
+      const midR=it(192,12),midG=it(128,24),midB=it(48,48);
+      const botR=it(138,6), botG=it(88,14), botB=it(32,28);
+      pageDivRef.current.style.background =
+        `radial-gradient(ellipse at 50% 0%, rgb(${topR},${topG},${topB}) 0%, rgb(${midR},${midG},${midB}) 55%, rgb(${botR},${botG},${botB}) 100%)`;
+    }
+    dnRaf.current = requestAnimationFrame(step);
+  }, []);
+
+  // Cleanup RAF on unmount
+  useEffect(() => () => { if (dnRaf.current) cancelAnimationFrame(dnRaf.current); }, []);
+
+  // Sync page background to current dnRef on mount (day = 0 = warm gold)
+  useEffect(() => {
+    if (pageDivRef.current) {
+      const d = dnRef.current;
+      const it = (a,b) => Math.round(a + (b-a)*d);
+      const topR=it(232,26),topG=it(184,42),topB=it(74,82);
+      const midR=it(192,12),midG=it(128,24),midB=it(48,48);
+      const botR=it(138,6), botG=it(88,14), botB=it(32,28);
+      pageDivRef.current.style.background =
+        `radial-gradient(ellipse at 50% 0%, rgb(${topR},${topG},${topB}) 0%, rgb(${midR},${midG},${midB}) 55%, rgb(${botR},${botG},${botB}) 100%)`;
+    }
+  }, []);
 
   // ── Load images ────────────────────────────────────────────────────────────
   useEffect(() => {
@@ -549,9 +634,9 @@ export default function App() {
       ltX.imageSmoothingEnabled=false;
       bgX.clearRect(0,0,W,H);
 
-      // Depth sort draggable objects: painter's algorithm (back→front = low lx+ly → high lx+ly)
+      // Depth sort draggable objects — exclude the currently-dragged one (drawn last, lifted)
       const draggables = OBJECTS_DEF
-        .filter(o=>placed[o.sprite]&&ANCHORS[o.sprite])
+        .filter(o=>placed[o.sprite]&&ANCHORS[o.sprite]&&o.sprite!==drag)
         .map(o=>({ sprite:o.sprite, lx:placed[o.sprite].lx, ly:placed[o.sprite].ly }))
         .sort((a,b)=>(a.lx+a.ly)-(b.lx+b.ly));
 
@@ -572,19 +657,31 @@ export default function App() {
         const img=imgs.current[layer.name]; if (!img) return;
 
         if (layer.name==='Room - Day sky.png') {
-          bgX.globalAlpha=1-dn; bgX.drawImage(img,0,0,W,H); bgX.globalAlpha=1; return;
+          bgX.globalAlpha=1-dnRef.current; bgX.drawImage(img,0,0,W,H); bgX.globalAlpha=1; return;
         }
         if (layer.name==='Room - Night sky.png') {
-          bgX.globalAlpha=dn; bgX.drawImage(img,0,0,W,H); bgX.globalAlpha=1; return;
+          bgX.globalAlpha=dnRef.current; bgX.drawImage(img,0,0,W,H); bgX.globalAlpha=1; return;
         }
         if (layer.type==='animated') {
-          const kfs=KEYFRAMES[layer.name]; if (!kfs) return;
-          const t=layer.name.includes('Sun')?(1-dn):dn;
-          const pos=interpKFs(kfs,t);
-          const a=ANCHORS[layer.name]; if (!a) return;
-          const off=getDrawOffset(a,pos.lx,pos.ly,pos.z);
-          const alpha=layer.name.includes('Sun')?Math.max(0,1-dn*3):Math.max(0,(dn-0.33)*3);
-          bgX.globalAlpha=alpha; bgX.drawImage(img,off.x,off.y,W,H); bgX.globalAlpha=1; return;
+          const kfs = KEYFRAMES[layer.name];
+          if (!kfs) return;
+          const a = ANCHORS[layer.name];
+          if (!a) return;
+          const isSun = layer.name.includes('Sun');
+          // sun_t=dn (0=high/day, 1=low/night)  moon_t=1-dn (1=low/day, 0=high/night)
+          const celestialT = isSun ? dnRef.current : (1 - dnRef.current);
+          const pos = interpKFs(kfs, celestialT);
+          const off = getDrawOffset(a, pos.lx, pos.ly, pos.z);
+          // Sun stays visible until late, moon appears early — they overlap mid-sky
+          const d = dnRef.current;
+          const alpha = isSun
+            ? Math.max(0, Math.min(1, (0.9 - d) / 0.25))   // full 0→0.65, fades 0.65→0.9
+            : Math.max(0, Math.min(1, (d - 0.1) / 0.25));  // fades in 0.1→0.35, full 0.35→1
+          if (alpha <= 0) return;
+          bgX.globalAlpha = alpha;
+          bgX.drawImage(img, off.x, off.y, W, H);
+          bgX.globalAlpha = 1;
+          return;
         }
         if (layer.name==='Room - Blinds.png') {
           const pos=interpKFsLinear(KEYFRAMES['Room - Blinds.png'],blindsT);
@@ -604,35 +701,72 @@ export default function App() {
         });
       }
 
-      bgX.fillStyle=`rgba(4,10,24,${dn*0.3})`; bgX.fillRect(0,0,W,H);
+      bgX.fillStyle=`rgba(4,10,24,${dnRef.current*0.3})`; bgX.fillRect(0,0,W,H);
+
+      // ── Dragged object: drawn last on top, lifted with shadow ─────────────
+      if (drag && placed[drag] && ANCHORS[drag]) {
+        const dragImg = imgs.current[drag];
+        if (dragImg) {
+          const { lx, ly } = placed[drag];
+          const a = ANCHORS[drag];
+          const LIFT = 18; // px lift above ground
+          const SCALE = 1.06;
+          const off = getDrawOffset(a, lx, ly, 0);
+          // Foot screen position (where shadow goes)
+          const footX = off.x + a.naturalFoot.x;
+          const footY = off.y + a.naturalFoot.y;
+          // Draw shadow ellipse under foot
+          bgX.save();
+          bgX.globalAlpha = 0.25;
+          bgX.beginPath();
+          bgX.ellipse(footX, footY + 4, 28, 8, 0, 0, Math.PI * 2);
+          bgX.fillStyle = 'rgba(0,0,0,0.7)';
+          bgX.fill();
+          bgX.restore();
+          // Draw sprite lifted + scaled from foot point
+          bgX.save();
+          bgX.translate(footX, footY - LIFT);
+          bgX.scale(SCALE, SCALE);
+          bgX.translate(-a.naturalFoot.x, -a.naturalFoot.y);
+          bgX.drawImage(dragImg, 0, 0, W, H);
+          bgX.restore();
+        }
+      }
 
       // ── Lights ────────────────────────────────────────────────────────────
       ltX.clearRect(0,0,W,H);
-      const lampAlpha=(lamp/100)*0.8;
-      if (lampAlpha>0.01) {
-        const { x:cx, y:cy }=LAMP_APEX;
-        const ha=(LAMP_ANGLE/2)*Math.PI/180;
-        ltX.save(); ltX.beginPath(); ltX.moveTo(cx,cy);
-        ltX.lineTo(cx-Math.sin(ha)*LAMP_REACH, cy+Math.cos(ha)*LAMP_REACH);
-        ltX.lineTo(cx+Math.sin(ha)*LAMP_REACH, cy+Math.cos(ha)*LAMP_REACH);
+      const lampT = lamp / 100; // 0→1
+      const lampAlpha = lampT * 0.55;
+      if (lampAlpha > 0.01) {
+        const { x:cx, y:cy } = LAMP_APEX;
+        const ha = (LAMP_ANGLE/2) * Math.PI/180;
+        ltX.save(); ltX.beginPath(); ltX.moveTo(cx, cy);
+        ltX.lineTo(cx - Math.sin(ha)*LAMP_REACH, cy + Math.cos(ha)*LAMP_REACH);
+        ltX.lineTo(cx + Math.sin(ha)*LAMP_REACH, cy + Math.cos(ha)*LAMP_REACH);
         ltX.closePath(); ltX.clip();
-        const cg=ltX.createRadialGradient(cx,cy,0,cx,cy,LAMP_REACH);
-        cg.addColorStop(0,`rgba(255,220,120,${lampAlpha})`);
-        cg.addColorStop(0.5,`rgba(255,200,80,${lampAlpha*0.5})`);
-        cg.addColorStop(1,'rgba(255,180,50,0)');
-        ltX.fillStyle=cg; ltX.fillRect(0,0,W,H); ltX.restore();
+        const cg = ltX.createRadialGradient(cx, cy, 0, cx, cy, LAMP_REACH);
+        cg.addColorStop(0,   `rgba(255,230,140,${lampAlpha})`);
+        cg.addColorStop(0.35,`rgba(255,210,90,${lampAlpha*0.7})`);
+        cg.addColorStop(0.7, `rgba(255,190,60,${lampAlpha*0.3})`);
+        cg.addColorStop(1,   'rgba(255,170,40,0)');
+        ltX.fillStyle = cg; ltX.fillRect(0,0,W,H); ltX.restore();
       }
+
+      // Fairy lights — glow scales with lamp dial
+      const fairyAlpha = 0.18 + lampT * 0.6;  // dim glow always, bright with lamp
+      const fairyRadius = 8 + lampT * 14;       // grow radius with lamp
       FAIRY_BULBS.forEach(b => {
-        const rg=ltX.createRadialGradient(b.x,b.y,0,b.x,b.y,10);
-        rg.addColorStop(0,'rgba(255,240,180,0.65)');
-        rg.addColorStop(0.5,'rgba(255,220,120,0.26)');
-        rg.addColorStop(1,'rgba(255,200,80,0)');
-        ltX.fillStyle=rg; ltX.beginPath(); ltX.arc(b.x,b.y,10,0,Math.PI*2); ltX.fill();
+        const rg = ltX.createRadialGradient(b.x, b.y, 0, b.x, b.y, fairyRadius);
+        rg.addColorStop(0,   `rgba(255,245,200,${fairyAlpha})`);
+        rg.addColorStop(0.4, `rgba(255,220,130,${fairyAlpha*0.55})`);
+        rg.addColorStop(1,   'rgba(255,200,80,0)');
+        ltX.fillStyle = rg;
+        ltX.beginPath(); ltX.arc(b.x, b.y, fairyRadius, 0, Math.PI*2); ltX.fill();
       });
       const bulbImg=imgs.current['Room - Fairy lights - Bulb.png'];
       if (bulbImg) ltX.drawImage(bulbImg,0,0,W,H);
     } catch(err) { console.warn('[draw]',err); }
-  }, [imgsLoaded,placed,lamp,blindsT,dn]);
+  }, [imgsLoaded,placed,lamp,blindsT,drag]); // dn read from dnRef.current each frame
 
   // ── Debug overlay — matches calibrate_v22's redrawOverlay + redrawGrid ─────
   const drawDebug = useCallback(() => {
@@ -733,8 +867,40 @@ export default function App() {
       ctx.fillStyle='rgba(74,200,232,.8)';
       ctx.fillText(`lx:${mouseLXY.lx.toFixed(3)} ly:${mouseLXY.ly.toFixed(3)}`, 6, H-6);
     }
-  }, [debug, placed, sel, snapDiv, showFP, showCubes, mouseLXY]);
 
+    // ── Celestial hit zones — crosshair + radius circle + coords ─────────────
+    const drawCelestialDebug = (isSun) => {
+      const name = isSun ? 'Room - Sun.png' : 'Room - Moon.png';
+      const kfs = KEYFRAMES[name];
+      const a = ANCHORS[name];
+      if (!kfs || !a) return;
+      const curDn = dnRef.current;
+      const celestialT = isSun ? curDn : (1 - curDn);
+      const pos = interpKFs(kfs, celestialT);
+      const off = getDrawOffset(a, pos.lx, pos.ly, pos.z);
+      const footX = off.x + a.naturalFoot.x;
+      const footY = off.y + a.naturalFoot.y;
+      const discDY = isSun ? -30 : -25;
+      const hx = footX;
+      const hy = footY + discDY;
+      const col = isSun ? '#ffcc00' : '#aaccff';
+      // Hit radius circle
+      ctx.beginPath(); ctx.arc(hx, hy, 35, 0, Math.PI*2);
+      ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+      ctx.setLineDash([3,3]); ctx.stroke(); ctx.setLineDash([]);
+      // Crosshair
+      ctx.strokeStyle = col; ctx.lineWidth = 1;
+      ctx.beginPath(); ctx.moveTo(hx-12,hy); ctx.lineTo(hx+12,hy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(hx,hy-12); ctx.lineTo(hx,hy+12); ctx.stroke();
+      // Label with px coords
+      ctx.font='8px monospace'; ctx.textAlign='left'; ctx.fillStyle=col;
+      ctx.fillText(`${isSun?'SUN':'MOON'} (${Math.round(hx)},${Math.round(hy)})`, hx+14, hy-4);
+    };
+    drawCelestialDebug(true);
+    drawCelestialDebug(false);
+  }, [debug, placed, sel, snapDiv, showFP, showCubes, mouseLXY, dn]);
+
+  useEffect(() => { drawRef.current = draw; }, [draw]);
   useEffect(() => { draw(); }, [draw]);
   useEffect(() => { drawDebug(); }, [drawDebug]);
 
@@ -764,11 +930,30 @@ export default function App() {
     };
   }, []);
 
+  // Compute current screen position of sun or moon given dn
+  const getCelestialScreenPos = useCallback((isSun) => {
+    const name = isSun ? 'Room - Sun.png' : 'Room - Moon.png';
+    const kfs = KEYFRAMES[name];
+    const a = ANCHORS[name];
+    if (!kfs || !a) return null;
+    const curDn = dnRef.current;
+    // Mirror draw logic: sun_t=dn, moon_t=1-dn
+    const celestialT = isSun ? curDn : (1 - curDn);
+    const pos = interpKFs(kfs, celestialT);
+    const off = getDrawOffset(a, pos.lx, pos.ly, pos.z);
+    // Hit centre: draw offset + naturalFoot gives the sprite anchor on screen.
+    // The visible disc sits above the foot — offset tuned to match sprite visuals.
+    const footX = off.x + a.naturalFoot.x;
+    const footY = off.y + a.naturalFoot.y;
+    const discDY = isSun ? -30 : -25; // disc is above the foot anchor
+    return { x: footX, y: footY + discDY };
+  }, []); // reads dnRef.current at call time — no dep needed
+
   const onPointerDown = useCallback((e) => {
     e.preventDefault();
     const { cx, cy }=getCanvasXY(e);
 
-    // Blinds tassel
+    // Blinds tassel — check FIRST so it always wins over celestial hit detection
     const tasselY=217-blindsT*68;
     if (cx>=478 && cx<=500 && Math.abs(cy-tasselY)<20) {
       setBlindsDragging(true);
@@ -777,10 +962,27 @@ export default function App() {
       return;
     }
 
+    // Sun/Moon click → trigger day/night transition
+    const sunPos  = getCelestialScreenPos(true);
+    const moonPos = getCelestialScreenPos(false);
+    const HIT_R = 35; // tighter radius now that moon is repositioned away from tassel
+    // Sun clickable when not already night (dn<0.9), moon when not already day (dn>0.1)
+    if (dnRef.current < 0.9 && sunPos && Math.hypot(cx-sunPos.x, cy-sunPos.y) < HIT_R) {
+      startDnTransition(1); return;
+    }
+    if (dnRef.current > 0.1 && moonPos && Math.hypot(cx-moonPos.x, cy-moonPos.y) < HIT_R) {
+      startDnTransition(0); return;
+    }
+
     const hit=hitTest(cx,cy);
     setSel(hit);
-    if (hit) setDrag(hit);
-  }, [getCanvasXY, hitTest, blindsT]);
+    if (hit) {
+      // Click to remove: handled on pointerUp if pointer didn't move
+      dragStartPos.current = placed[hit] ? {...placed[hit]} : null;
+      dragMoved.current = false;
+      setDrag(hit);
+    }
+  }, [getCanvasXY, hitTest, blindsT, placed, getCelestialScreenPos, dn, startDnTransition]);
 
   const onPointerMove = useCallback((e) => {
     const { cx, cy }=getCanvasXY(e);
@@ -791,37 +993,71 @@ export default function App() {
       setMouseLXY({ lx:raw.lx, ly:raw.ly });
     }
 
+    // Check hover over clickable celestial body (for cursor)
+    if (!drag && !blindsDragging) {
+      const sunPos  = getCelestialScreenPos(true);
+      const moonPos = getCelestialScreenPos(false);
+      const HIT_R = 35;
+      const overSun  = dnRef.current < 0.9 && sunPos  && Math.hypot(cx-sunPos.x,  cy-sunPos.y)  < HIT_R;
+      const overMoon = dnRef.current > 0.1 && moonPos && Math.hypot(cx-moonPos.x, cy-moonPos.y) < HIT_R;
+      setHovCelestial(!!(overSun || overMoon));
+    } else {
+      setHovCelestial(false);
+    }
+
     if (blindsDragging) {
       const dy=blindsDragStartY.current-cy;
       setBlindsT(prev=>Math.max(0,Math.min(1,blindsDragStartT.current+dy/80)));
       return;
     }
     if (!drag) return;
+    dragMoved.current = true;
 
+    // Freely follow cursor during drag — collision only checked on drop
     const raw=s2l(cx,cy);
     const pos=snapAndClampDyn(raw.lx, raw.ly, drag);
-
-    // Collision check — only block if another object is already there
-    if (wouldOverlap(drag, pos.lx, pos.ly, placedRef.current)) {
-      setDropBlocked(true);
-      return; // keep old position
-    }
-    setDropBlocked(false);
     setPlaced(prev => ({ ...prev, [drag]: pos }));
-  }, [drag, blindsDragging, getCanvasXY, snapAndClampDyn, debug]);
+  }, [drag, blindsDragging, getCanvasXY, snapAndClampDyn, debug, getCelestialScreenPos, dn]);
 
   const onPointerUp = useCallback(() => {
+    if (drag) {
+      if (!dragMoved.current) {
+        // Pure click (no movement) — remove the object
+        setPlaced(prev => { const n={...prev}; delete n[drag]; return n; });
+        setSel(null);
+      } else {
+        // Check collision at drop position
+        const currentPos = placedRef.current[drag];
+        if (currentPos && wouldOverlap(drag, currentPos.lx, currentPos.ly, placedRef.current)) {
+          // Invalid drop — flash red then restore to start position
+          setDropBlocked(true);
+          const sp = dragStartPos.current;
+          setTimeout(() => {
+            if (sp) setPlaced(prev => ({ ...prev, [drag]: sp }));
+            setDropBlocked(false);
+          }, 350);
+        }
+      }
+    }
     setDrag(null);
     setBlindsDragging(false);
-    setDropBlocked(false);
-  }, []);
+    dragStartPos.current = null;
+    dragMoved.current = false;
+  }, [drag]);
 
   const onPointerLeave = useCallback(() => {
     setMouseLXY(null);
+    if (drag && dragStartPos.current) {
+      // Dragged off canvas — restore to start position
+      const sp = dragStartPos.current;
+      setPlaced(prev => ({ ...prev, [drag]: sp }));
+    }
     setDrag(null);
     setBlindsDragging(false);
     setDropBlocked(false);
-  }, []);
+    dragStartPos.current = null;
+    dragMoved.current = false;
+  }, [drag]);
 
   // ── Tray drag → drop ───────────────────────────────────────────────────────
   const onTrayDown = useCallback((e, def) => {
@@ -943,32 +1179,30 @@ export default function App() {
   const pBdr = isDark?'rgba(60,100,180,.3)':'rgba(180,110,50,.35)';
   const tCol = isDark?'#a0c0e0':'#c07840';
   const dCol = isDark?'rgba(120,170,220,.5)':'rgba(160,90,40,.5)';
-  const pageBg=isDark
-    ?'radial-gradient(ellipse at 50% 0%,#1a2a42 0%,#0a1220 60%,#050a14 100%)'
-    :'radial-gradient(ellipse at 50% 0%,#e8d090 0%,#c09858 50%,#9a7438 100%)';
+  // pageBg is now driven directly by the RAF loop via pageDivRef — no React state needed here
 
   const placedCount=Object.keys(placed).length;
   const selDef=sel?OBJECTS_DEF.find(o=>o.sprite===sel):null;
 
-  // ── Loading screen ────────────────────────────────────────────────────────
-  if (showLoad) return (
-    <div style={{ position:'fixed',inset:0,cursor:'pointer',
-      background:'radial-gradient(ellipse at 50% 30%,#c87040 0%,#7a3418 60%,#320e02 100%)',
-      display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
-      gap:'1.4rem',fontFamily:"'Courier New',monospace" }} onClick={handleStart}>
-      <div style={{ fontSize:9,color:'rgba(255,210,150,.4)',letterSpacing:4 }}>DESE-61003 · AUDIO EXPERIENCE DESIGN</div>
-      <div style={{ fontSize:22,color:'#fff8f0',letterSpacing:5,fontWeight:'bold',textShadow:'2px 2px 0 rgba(80,30,0,.6)' }}>◈ SOUND ROOM ◈</div>
-      <div style={{ width:200,height:8,background:'rgba(80,30,10,.35)',border:'2px solid rgba(200,120,50,.4)' }}>
-        <div style={{ height:'100%',background:'linear-gradient(90deg,#c07030,#f0b050)',width:'100%' }}/>
-      </div>
-      <div style={{ fontSize:11,color:'rgba(255,210,150,.5)',letterSpacing:2 }}>click to enter</div>
-    </div>
-  );
-
   // ── Main UI ───────────────────────────────────────────────────────────────
   return (
-    <div style={{ width:'100%',minHeight:'100vh',display:'flex',background:pageBg,
-      transition:'background 1.5s',fontFamily:"'Courier New',monospace",boxSizing:'border-box' }}>
+    <div ref={pageDivRef} style={{ width:'100%',minHeight:'100vh',display:'flex',
+      fontFamily:"'Courier New',monospace",boxSizing:'border-box' }}>
+
+      {/* ── Loading overlay — sits on top of the live room ───────────────── */}
+      {showLoad && (
+        <div style={{ position:'fixed',inset:0,cursor:'pointer',zIndex:100,
+          background:'rgba(20,10,4,0.82)',backdropFilter:'blur(3px)',
+          display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+          gap:'1.4rem',fontFamily:"'Courier New',monospace" }} onClick={handleStart}>
+          <div style={{ fontSize:9,color:'rgba(255,210,150,.4)',letterSpacing:4 }}>DESE-61003 · AUDIO EXPERIENCE DESIGN</div>
+          <div style={{ fontSize:22,color:'#fff8f0',letterSpacing:5,fontWeight:'bold',textShadow:'2px 2px 0 rgba(80,30,0,.6)' }}>◈ SOUND ROOM ◈</div>
+          <div style={{ width:200,height:8,background:'rgba(80,30,10,.35)',border:'2px solid rgba(200,120,50,.4)' }}>
+            <div style={{ height:'100%',background:'linear-gradient(90deg,#c07030,#f0b050)',width:'100%' }}/>
+          </div>
+          <div style={{ fontSize:11,color:'rgba(255,210,150,.5)',letterSpacing:2 }}>click to enter</div>
+        </div>
+      )}
 
       {/* ── Debug sidebar ───────────────────────────────────────────────── */}
       {debug && (
@@ -993,14 +1227,14 @@ export default function App() {
         justifyContent:'center',padding:16,gap:8 }}>
 
         {/* Top bar */}
-        <div style={{ width:W+140,display:'flex',justifyContent:'space-between',alignItems:'center' }}>
+        <div style={{ width:DW+140,display:'flex',justifyContent:'space-between',alignItems:'center' }}>
           <div style={{ fontSize:10,color:dCol,letterSpacing:3 }}>
             ◈ SOUND ROOM · <span style={{ color:isDark?'#80b8e0':'#d47830',transition:'color 1s' }}>{isDark?'NIGHT':'DAY'}</span>
           </div>
           <div style={{ display:'flex',alignItems:'center',gap:6 }}>
             {[
               [()=>setWeather(w=>w==='rain'?'clear':'rain'), weather==='rain'?'🌧 rain':'☀ clear'],
-              [()=>setDn(d=>d<0.5?1:0), isDark?'☀ day':'🌙 night'],
+              [()=>startDnTransition(dn<0.5?1:0), isDark?'☀ day':'🌙 night'],
               [doShuffle, 'shuffle'],
               [()=>{ setPlaced({}); setSel(null); }, 'reset'],
               [()=>setDebug(d=>!d), debug?'◉ debug':'○ debug'],
@@ -1018,23 +1252,23 @@ export default function App() {
         {/* Room row */}
         <div style={{ display:'flex',gap:8,alignItems:'flex-start' }}>
           {/* Lamp dial */}
-          <div style={{ background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,
+          <div style={{ background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,transition:'background .8s,border-color .8s',
             padding:'8px 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:2 }}>
             <Dial value={lamp} onChange={setLamp} label="LAMP" size={52} color={isDark?'#80b8e0':'#d4a840'}/>
           </div>
 
           {/* Canvas stack */}
-          <div style={{ position:'relative',width:W,height:H,flexShrink:0,
+          <div style={{ position:'relative',width:DW,height:DH,flexShrink:0,
             border:`2px solid ${dropBlocked?'rgba(220,60,40,.8)':isDark?'rgba(40,70,120,.5)':'rgba(140,70,20,.4)'}`,
             borderRadius:3,transition:'border-color .15s',
             boxShadow:`0 8px 48px ${isDark?'rgba(4,10,22,.9)':'rgba(80,40,8,.4)'}` }}>
 
             <canvas ref={bgRef} width={W} height={H}
-              style={{ position:'absolute',top:0,left:0,imageRendering:'pixelated' }}/>
+              style={{ position:'absolute',top:0,left:0,width:DW,height:DH,imageRendering:'pixelated' }}/>
             <canvas ref={ltRef} width={W} height={H}
-              style={{ position:'absolute',top:0,left:0,imageRendering:'pixelated',mixBlendMode:'screen',pointerEvents:'none' }}/>
+              style={{ position:'absolute',top:0,left:0,width:DW,height:DH,imageRendering:'pixelated',mixBlendMode:'screen',pointerEvents:'none' }}/>
             <canvas ref={ovRef} width={W} height={H}
-              style={{ position:'absolute',top:0,left:0,cursor:drag||blindsDragging?'grabbing':debug?'crosshair':'default' }}
+              style={{ position:'absolute',top:0,left:0,width:DW,height:DH,cursor:drag||blindsDragging?'grabbing':hovCelestial?'pointer':debug?'crosshair':'default' }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
               onPointerUp={onPointerUp}
@@ -1068,14 +1302,14 @@ export default function App() {
           </div>
 
           {/* Blinds slider */}
-          <div style={{ background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,
+          <div style={{ background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,transition:'background .8s,border-color .8s',
             padding:'8px 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:5 }}>
             <div style={{ fontSize:7,color:dCol,letterSpacing:1 }}>BLINDS</div>
-            <input type="range" min={0} max={1} step={0.01} value={blindsT}
-              onChange={e=>setBlindsT(+e.target.value)}
+            <input type="range" min={0} max={1} step={0.01} value={1-blindsT}
+              onChange={e=>setBlindsT(1-(+e.target.value))}
               style={{ writingMode:'vertical-lr',direction:'rtl',height:80,width:18,
-                accentColor:isDark?'#80b0e0':'#d07830' }}/>
-            <div style={{ fontSize:7,color:dCol }}>{Math.round(blindsT*100)}%</div>
+                accentColor:isDark?'#80b0e0':'#d07830',transform:'scaleY(-1)' }}/>
+            <div style={{ fontSize:7,color:dCol }}>{Math.round((1-blindsT)*100)}%</div>
             <div style={{ fontSize:6,color:dCol,textAlign:'center',maxWidth:50,lineHeight:1.3,opacity:.7 }}>drag tassel</div>
             <div style={{ fontSize:18,cursor:'pointer',lineHeight:1 }}
               onClick={()=>setWeather(w=>w==='rain'?'clear':'rain')}>
@@ -1086,7 +1320,7 @@ export default function App() {
 
         {/* Object tray — Unpacking style */}
         <div style={{ background:pBg,border:`1px solid ${pBdr}`,borderRadius:4,
-          width:W+140,display:'flex',flexWrap:'wrap',gap:6,
+          width:DW+140,display:'flex',flexWrap:'wrap',gap:6,
           alignItems:'flex-end',padding:'10px 12px' }}>
           <div style={{ fontSize:8,color:dCol,letterSpacing:2,marginRight:4,alignSelf:'center' }}>OBJECTS</div>
           {OBJECTS_DEF.map(def => {
