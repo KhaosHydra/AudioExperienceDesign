@@ -145,6 +145,7 @@ export default function App() {
   const [placed,setPlaced]=useState([]);
   const [drag,setDrag]=useState(null);
   const [dragCollides,setDragCollides]=useState(false);
+  const dragOrigin=useRef(null); // {lx,ly} at drag start — used to snap back on collision
   const [sel,setSel]=useState(null);
   const [touchOrder,setTouchOrder]=useState([]);
   const [speed,setSpeed]=useState(1.0);
@@ -272,11 +273,15 @@ export default function App() {
   const onObjPD=useCallback((e,i)=>{
     e.stopPropagation();e.preventDefault();
     setSel(i);setDrag(i);
-    if(placed[i]) bringToFront(placed[i].iid);
+    if(placed[i]) {
+      bringToFront(placed[i].iid);
+      dragOrigin.current={lx:placed[i].lx,ly:placed[i].ly};
+    }
   },[placed,bringToFront]);
 
   useEffect(()=>{
     if(drag===null){setDragCollides(false);return;}
+    let currentCollides=false; // local tracker to avoid closure staleness in onPU
     const onPM=(e)=>{
       const r=roomRef.current.getBoundingClientRect();
       const rw=r.width/RW,rh=r.height/RH;
@@ -285,12 +290,20 @@ export default function App() {
       setPlaced(p=>{
         const next=p.map((o,i)=>i===drag?{...o,lx,ly}:o);
         const dragged=next[drag];
-        const collides=next.some((o,i)=>i!==drag&&isoFootprintCollides(dragged.lx,dragged.ly,dragged.sprite,o.lx,o.ly,o.sprite));
-        setDragCollides(collides);
+        currentCollides=next.some((o,i)=>i!==drag&&isoFootprintCollides(dragged.lx,dragged.ly,dragged.sprite,o.lx,o.ly,o.sprite));
+        setDragCollides(currentCollides);
         return next;
       });
     };
-    const onPU=()=>{setDrag(null);setDragCollides(false);};
+    const onPU=()=>{
+      // Snap back to original position if dropped in a collision
+      if(currentCollides && dragOrigin.current){
+        const origin=dragOrigin.current;
+        setPlaced(p=>p.map((o,i)=>i===drag?{...o,lx:origin.lx,ly:origin.ly}:o));
+      }
+      dragOrigin.current=null;
+      setDrag(null);setDragCollides(false);
+    };
     window.addEventListener('pointermove',onPM);
     window.addEventListener('pointerup',onPU);
     return()=>{window.removeEventListener('pointermove',onPM);window.removeEventListener('pointerup',onPU);};
