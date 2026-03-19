@@ -10,6 +10,7 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import './index.css';
 import useOSC from './useOSC';
+import useAudio from './useAudio';
 
 // ─── CANVAS SIZE ─────────────────────────────────────────────────────────────
 const W = 512, H = 384;
@@ -584,7 +585,7 @@ export default function App() {
   const [showCubes,setShowCubes]= useState(true);
 
   const [lamp,     setLamp]     = useState(0);
-  const [blindsT,  setBlindsT]  = useState(1);
+  const [blindsT,  setBlindsT]  = useState(0.25);
   const [dn,       setDn]       = useState(0);
   const [weather,  setWeather]  = useState('clear');
   const [speed,    setSpeed]    = useState(1.0);
@@ -628,6 +629,9 @@ export default function App() {
   const dnTarget    = useRef(0);
   const dnRaf       = useRef(null);
   const osc         = useOSC();
+  const audio       = useAudio();
+  const [laptopLabel,  setLaptopLabel]  = useState('CLEAN');
+  const [stemProgress, setStemProgress] = useState(0);
   const isNight     = dn >= 0.5;
   const CFMS        = 5000;
 
@@ -1090,18 +1094,50 @@ export default function App() {
   },[placed,osc]);
   const handleStart=useCallback(()=>{
     setShowLoad(false);setStarted(true);
-    OBJECTS_DEF.forEach(({soundRole})=>{if(soundRole)osc.send(`/soundroom/layer/${soundRole}`,'0.0','0.0','0.0');});
-    osc.send('/soundroom/layer/harmony','0.0','0.18','1.0');
-    osc.send('/soundroom/time','0.0');osc.send('/soundroom/blinds','0.0');
-    osc.send('/soundroom/lamp','0');osc.send('/soundroom/weather','0.0');osc.send('/soundroom/speed','1.0');
-    // Init ambient audio context on user gesture
     if (!ambientCtx.current) ambientCtx.current = new (window.AudioContext || window.webkitAudioContext)();
-  },[osc]);
+    // audio.start disabled — using Max MSP
+    const msgs = [];
+    OBJECTS_DEF.forEach(({soundRole})=>{if(soundRole)msgs.push([`/soundroom/layer/${soundRole}`,'0.0','0.0','0.0']);});
+    msgs.push(['/soundroom/layer/harmony','0.0','0.18','1.0']);
+    msgs.push(['/soundroom/time','0.0']);
+    msgs.push(['/soundroom/blinds',(1-0.25).toFixed(3)]);
+    msgs.push(['/soundroom/lamp','0.0']);
+    msgs.push(['/soundroom/weather','0.0']);
+    msgs.push(['/soundroom/speed','1.0']);
+    // waitAndSend polls every 100ms until WebSocket is open, then sends
+    const wsFn = osc.waitAndSend || osc.send;
+    msgs.forEach(([addr,...args], i) => setTimeout(() => wsFn(addr,...args), i*30));
+  },[osc, audio]);
   useEffect(()=>{if(!started)return;if(isNight===prevNight.current)return;prevNight.current=isNight;clearTimers();osc.send('/soundroom/time',isNight?'100.0':'0.0');transTimers.current.push(setTimeout(sendAll,Math.round(CFMS*.3)),setTimeout(sendAll,CFMS+150));},[isNight,started,osc,sendAll,clearTimers]);
   useEffect(()=>{if(started)osc.send('/soundroom/blinds',blindsT.toFixed(3));},[blindsT,started,osc]);
   useEffect(()=>{if(started)osc.send('/soundroom/lamp',String(lamp));},[lamp,started,osc]);
   useEffect(()=>{if(started)osc.send('/soundroom/weather',weather==='rain'?'1.0':'0.0');},[weather,started,osc]);
   useEffect(()=>{if(started){sendAll();pushSpeed();}},[placed,started,sendAll,pushSpeed]);
+
+  // ── WEB AUDIO — mirrors OSC, fires in parallel ────────────────────────────
+  // Day/night scene transition
+  useEffect(()=>{
+    if(!started)return;
+    if(isNight===prevNight.current)return;
+    audio.transitionScene(isNight?'night':'day', placed);
+  },[isNight,started,audio,placed]);
+  // Blinds → highshelf cut + master dim (v: 0=open/bright, 1=closed/muffled)
+  useEffect(()=>{ if(started) audio.applyBlinds(1-blindsT); },[blindsT,started,audio]);
+  // Lamp → warm/cold EQ + saturation
+  useEffect(()=>{ if(started) audio.applyLamp(lamp); },[lamp,started,audio]);
+  // Weather → lowpass muffle
+  useEffect(()=>{ if(started) audio.applyWeather(weather==='rain'?1:0); },[weather,started,audio]);
+  // Placed objects → start/stop stems, vinyl FX, laptop FX, speed
+  useEffect(()=>{
+    if(!started)return;
+    audio.syncAll(placed);
+    const vinylPos=placed['Room - Vinyl Player.png'];
+    if(vinylPos) audio.applyVinyl(vinylPos.lx,vinylPos.ly);
+    else audio.clearVinyl();
+    if(!placed['Room - Laptop.png']){audio.clearLaptop();setLaptopLabel('CLEAN');}
+    const coffeePos=placed['Room - Coffee.png'];
+    audio.applySpeed(coffeePos?0.9+coffeePos.lx*0.25:1.0);
+  },[placed,started,audio]);
 
   // ── Ambient toggle ────────────────────────────────────────────────────────
   const toggleAmbient = useCallback((ambId) => {
@@ -1187,9 +1223,12 @@ export default function App() {
           <div style={{fontSize:9,color:'rgba(255,210,150,.4)',letterSpacing:4}}>DESE-61003 · AUDIO EXPERIENCE DESIGN</div>
           <div style={{fontSize:22,color:'#fff8f0',letterSpacing:5,fontWeight:'bold',textShadow:'2px 2px 0 rgba(80,30,0,.6)'}}>◈ SOUND ROOM ◈</div>
           <div style={{width:200,height:8,background:'rgba(80,30,10,.35)',border:'2px solid rgba(200,120,50,.4)'}}>
-            <div style={{height:'100%',background:'linear-gradient(90deg,#c07030,#f0b050)',width:'100%'}}/>
+            <div style={{height:'100%',background:'linear-gradient(90deg,#c07030,#f0b050)',
+              width:`${stemProgress>0?stemProgress:100}%`,transition:'width .2s'}}/>
           </div>
-          <div style={{fontSize:11,color:'rgba(255,210,150,.5)',letterSpacing:2}}>click to enter</div>
+          <div style={{fontSize:11,color:'rgba(255,210,150,.5)',letterSpacing:2}}>
+            {stemProgress>0&&stemProgress<100?`loading stems… ${stemProgress}%`:'click to enter'}
+          </div>
         </div>
       )}
 
@@ -1212,7 +1251,14 @@ export default function App() {
               [()=>setWeather(w=>w==='rain'?'clear':'rain'),weather==='rain'?'🌧 rain':'☀ clear'],
               [()=>startDnTransition(dn<.5?1:0),isDark?'☀ day':'🌙 night'],
               [doShuffle,'shuffle'],
-              [()=>{setPlaced({});setSel(null);},'reset'],
+              [()=>{
+                setPlaced({});setSel(null);
+                setLamp(0);setBlindsT(0.25);setWeather('clear');
+                setSpeed(1.0);startDnTransition(0);
+                audio.applyBlinds(1-0.25);audio.applyLamp(0);
+                audio.applyWeather(0);audio.applySpeed(1.0);
+                audio.syncAll({});
+              },'reset'],
               [()=>setDebug(d=>!d),debug?'◉ debug':'○ debug'],
             ].map(([fn,label],i)=>(
               <div key={i} onClick={fn} style={{padding:'3px 10px',cursor:'pointer',fontSize:9,

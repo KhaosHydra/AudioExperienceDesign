@@ -6,8 +6,8 @@
  * When it's not, this hook handles it in-browser.
  *
  * Stem file layout:
- *   public/stems/day/1 Piano Main.aif   ... (9 stems, 80 BPM, 16 bars = 48.0s)
- *   public/stems/night/1 Synth Appregio Low.aif  ... (10 stems, 110 BPM, 8 bars = 17.45s)
+ *   public/stems/day/1 Piano Main.aiff   ... (9 stems, 80 BPM, 16 bars = 48.0s)
+ *   public/stems/night/1 Synth Appregio Low.aiff  ... (9 stems, 110 BPM, 8 bars = 17.45s)
  *
  * ── LOOP LENGTHS ─────────────────────────────────────────────────────────────
  *   Day:   80 BPM  × 16 bars × 4 beats = 48.000s
@@ -48,25 +48,24 @@ function loopSecForScene(scene) {
 
 // ─── STEM FILE MAP ────────────────────────────────────────────────────────────
 const STEM_FILES = {
-  d1:  'day/1 Piano Main.aif',
-  d2:  'day/2 Piano Bass.aif',
-  d3:  'day/3 Melody.aif',
-  d4:  'day/4 Sparkle.aif',
-  d5:  'day/5 Piano Appregio.aif',
-  d6:  'day/6 Violin.aif',
-  d7:  'day/7 Drone.aif',
-  d8:  'day/8 Piano Chord 1.aif',
-  d9:  'day/9 Piano Chord 2.aif',
-  n1:  'night/1 Synth Appregio Low.aif',
-  n2:  'night/2 Synth Appregio High.aif',
-  n3:  'night/3 Synth Sparkle.aif',
-  n4:  'night/4 Bass.aif',
-  n5:  'night/5 Melody 1.aif',
-  n6:  'night/6 Pad Low.aif',
-  n7:  'night/7 Clap.aif',
-  n8:  'night/8 Synth Rhythm.aif',
-  n9:  'night/9 Violin.aif',
-  n10: 'night/10 Drum.wav',
+  d1:  'day/1 Piano Main.aiff',
+  d2:  'day/2 Piano Bass.aiff',
+  d3:  'day/3 Melody.aiff',
+  d4:  'day/4 Sparkle.aiff',
+  d5:  'day/5 Piano Appregio.aiff',
+  d6:  'day/6 Violin.aiff',
+  d7:  'day/7 Drone.aiff',
+  d8:  'day/8 Piano Chord 1.aiff',
+  d9:  'day/9 Piano Chord 2.aiff',
+  n1:  'night/1 Synth Appregio Low.aiff',
+  n2:  'night/2 Synth Appregio High.aiff',
+  n3:  'night/3 Synth Sparkle.aiff',
+  n4:  'night/4 Bass.aiff',
+  n5:  'night/5 Melody 1.aiff',
+  n6:  'night/6 Pad Low.aiff',
+  n7:  'night/7 Clap.aiff',
+  n8:  'night/8 Synth Rhythm.aiff',
+  n9:  'night/9 Violin.aiff',
 };
 
 // Which scene does each stem belong to?
@@ -83,7 +82,7 @@ export const AUDIO_MAP = {
   'Room - Duck teddy.png':     { day: 'd7',  night: 'n6'  },
   'Room - Frog Teddy.png':     { day: 'd5',  night: 'n1'  },
   'Room - Speakers.png':       { day: null,  night: 'n7'  },
-  'Room - Vinyl Player.png':   { day: 'd9',  night: 'n10' },
+  'Room - Vinyl Player.png':   { day: 'd9',  night: 'n8'  },
   'Room - Laptop.png':         { day: null,  night: null  },
   'Room - Coffee.png':         { day: null,  night: null  },
 };
@@ -245,22 +244,46 @@ export default function useAudio() {
   }, []);
 
   // ── Stem loading ──────────────────────────────────────────────────────────
+  // Tries .aif first, then .mp3 as fallback (Firefox often can't decode .aif).
+  // Watch the console for [useAudio] lines to diagnose load failures.
   const loadStems = useCallback(async (onProgress) => {
     const ids = Object.keys(STEM_FILES);
     let done = 0;
-    // Load sequentially to avoid overwhelming the browser with 19 parallel decodes
+    let loadedCount = 0;
+
     for (const id of ids) {
-      try {
-        const res = await fetch(`/stems/${STEM_FILES[id]}`);
-        if (!res.ok) throw new Error(`HTTP ${res.status} for ${STEM_FILES[id]}`);
-        const ab = await res.arrayBuffer();
-        buffers.current[id] = await ctx.current.decodeAudioData(ab);
-        console.log(`[useAudio] loaded ${id} — ${buffers.current[id].duration.toFixed(2)}s`);
-      } catch (e) {
-        console.warn(`[useAudio] failed to load stem ${id}:`, e.message);
+      const basePath = `/stems/${STEM_FILES[id]}`;
+      // Try the original extension first, then .mp3 as fallback
+      const paths = [basePath, basePath.replace(/\.(aif|aiff)$/i, '.mp3')];
+      let loaded = false;
+
+      for (const path of paths) {
+        try {
+          const res = await fetch(path);
+          if (!res.ok) continue; // 404 → try next
+          const ab = await res.arrayBuffer();
+          const buf = await ctx.current.decodeAudioData(ab);
+          buffers.current[id] = buf;
+          console.log(`[useAudio] ✓ ${id} loaded from ${path.split('/').pop()} (${buf.duration.toFixed(2)}s)`);
+          loaded = true;
+          loadedCount++;
+          break;
+        } catch (e) {
+          console.warn(`[useAudio] ✗ ${id} failed (${path.split('/').pop()}):`, e.message || e);
+        }
       }
+
+      if (!loaded) {
+        console.error(`[useAudio] ✗✗ ${id} COULD NOT LOAD — object will be silent`);
+      }
+
       done++;
       onProgress?.(done / ids.length);
+    }
+
+    console.log(`[useAudio] ready — ${loadedCount}/${ids.length} stems loaded`);
+    if (loadedCount === 0) {
+      console.error('[useAudio] ⚠ NO STEMS LOADED. Check: 1) files exist in public/stems/day/ and public/stems/night/ 2) filenames match exactly 3) try converting .aif → .mp3');
     }
   }, []);
 

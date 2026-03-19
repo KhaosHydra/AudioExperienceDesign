@@ -12,29 +12,24 @@ const UDP_PORT = 7374;
 const udp = dgram.createSocket('udp4');
 const wss = new WebSocketServer({ port: WS_PORT });
 
-// OSC string: pad to 4-byte boundary, null-terminated
 function oscString(str) {
-  const buf = Buffer.from(String(str) + '\0');
-  const remainder = buf.length % 4;
-  return remainder ? Buffer.concat([buf, Buffer.alloc(4 - remainder)]) : buf;
+  const buf = Buffer.from(str + '\0');
+  const pad = 4 - (buf.length % 4);
+  return pad < 4 ? Buffer.concat([buf, Buffer.alloc(pad)]) : buf;
 }
 
-// OSC float32
 function oscFloat(val) {
   const buf = Buffer.alloc(4);
   buf.writeFloatBE(val, 0);
   return buf;
 }
 
-// Build an OSC message from address + args
-// Always send numeric values as float so MaxMSP unpack 0. 0. 0. receives floats.
 function buildOSC(address, args) {
   let typeTag = ',';
   const argBuffers = [];
-
   for (const arg of args) {
-    const num = Number(arg);
-    if (Number.isNaN(num)) {
+    const num = parseFloat(arg);
+    if (isNaN(num)) {
       typeTag += 's';
       argBuffers.push(oscString(arg));
     } else {
@@ -42,35 +37,28 @@ function buildOSC(address, args) {
       argBuffers.push(oscFloat(num));
     }
   }
-
   return Buffer.concat([
     oscString(address),
     oscString(typeTag),
-    ...argBuffers,
+    ...argBuffers
   ]);
 }
 
 wss.on('connection', (ws) => {
   console.log('[bridge] React connected');
-
   ws.on('message', (data) => {
     const msg = data.toString().trim();
-    if (!msg) return;
-
-    const parts = msg.split(/\s+/);
+    const parts = msg.split(' ');
     const address = parts[0];
     const args = parts.slice(1);
-
     try {
       const packet = buildOSC(address, args);
       udp.send(packet, 0, packet.length, UDP_PORT, UDP_HOST);
-      console.log('[bridge] raw:', msg);
-      console.log('[bridge] sent:', address, args);
+      console.log(`[bridge] → ${msg}`);
     } catch (e) {
       console.log('[bridge] error:', e.message);
     }
   });
-
   ws.on('close', () => console.log('[bridge] React disconnected'));
 });
 
