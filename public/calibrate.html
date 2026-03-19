@@ -1,0 +1,378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8"/>
+  <title>Isometric Box Calibrator</title>
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#0d0d10;color:#c8b890;font-family:'Courier New',monospace;display:flex;flex-direction:column;align-items:center;padding:16px;gap:12px}
+    h1{font-size:13px;letter-spacing:4px;color:#f0d080;margin-top:4px}
+    #layout{display:flex;gap:12px;align-items:flex-start}
+    #panel{width:230px;flex-shrink:0;display:flex;flex-direction:column;gap:8px}
+    .card{background:rgba(30,22,8,.85);border:1px solid rgba(180,130,50,.25);border-radius:5px;padding:10px;display:flex;flex-direction:column;gap:6px}
+    .card h2{font-size:9px;letter-spacing:2px;color:#a08040;margin-bottom:2px}
+    #spriteList{display:flex;flex-direction:column;gap:3px;max-height:280px;overflow-y:auto}
+    .sl-btn{background:rgba(40,30,10,.6);border:1px solid rgba(160,110,40,.2);color:#b09060;font-family:inherit;font-size:9px;padding:4px 8px;cursor:pointer;text-align:left;border-radius:3px;transition:all .12s;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+    .sl-btn:hover{background:rgba(80,55,15,.6);border-color:rgba(220,160,60,.4)}
+    .sl-btn.active{background:rgba(100,70,10,.7);border-color:#d4a840;color:#ffe090}
+    label{font-size:8px;color:#907850;letter-spacing:1px}
+    .slider-row{display:flex;align-items:center;gap:6px}
+    .slider-row input[type=range]{flex:1;accent-color:#d4a840;height:14px}
+    .slider-row span{font-size:9px;color:#d4a840;min-width:36px;text-align:right}
+    textarea{width:100%;height:160px;background:rgba(10,8,4,.8);border:1px solid rgba(160,110,40,.3);color:#90c070;font-family:'Courier New',monospace;font-size:8px;padding:6px;resize:vertical;border-radius:3px}
+    button{background:rgba(60,40,5,.7);border:1px solid rgba(200,140,50,.4);color:#e0b060;font-family:inherit;font-size:9px;padding:5px 12px;cursor:pointer;border-radius:3px;letter-spacing:1px;transition:all .12s}
+    button:hover{background:rgba(100,70,10,.8);border-color:#d4a840}
+    #canvas-wrap{position:relative}
+    canvas{display:block;border:2px solid rgba(140,100,30,.4);border-radius:3px;image-rendering:pixelated;cursor:crosshair}
+    #hint{font-size:9px;color:rgba(180,140,80,.6);letter-spacing:1px;height:14px}
+    #anchor-info{font-size:8px;color:#70a870;letter-spacing:.5px}
+  </style>
+</head>
+<body>
+<h1>◈ ISOMETRIC BOX CALIBRATOR ◈</h1>
+<div id="hint">Select a sprite to begin calibration</div>
+<div id="layout">
+  <div id="panel">
+    <div class="card">
+      <h2>SPRITES</h2>
+      <div id="spriteList"></div>
+    </div>
+    <div class="card">
+      <h2>BOX DIMENSIONS</h2>
+      <label>Width W (lx units, 0-0.5)</label>
+      <div class="slider-row">
+        <input type="range" id="sl-w" min="0.01" max="0.50" step="0.01" value="0.10">
+        <span id="lbl-w">0.10</span>
+      </div>
+      <label>Depth D (ly units, 0-0.5)</label>
+      <div class="slider-row">
+        <input type="range" id="sl-d" min="0.01" max="0.50" step="0.01" value="0.10">
+        <span id="lbl-d">0.10</span>
+      </div>
+      <label>Height H (pixels above floor)</label>
+      <div class="slider-row">
+        <input type="range" id="sl-h" min="0" max="200" step="1" value="30">
+        <span id="lbl-h">30</span>
+      </div>
+    </div>
+    <div class="card">
+      <h2>ANCHOR POINT</h2>
+      <div id="anchor-info">Click sprite to set floor contact point</div>
+      <button id="btn-reset-anchor">Reset Anchor</button>
+    </div>
+    <div class="card">
+      <h2>EXPORT</h2>
+      <button id="btn-export">Export Calibration Data</button>
+      <textarea id="export-out" readonly placeholder="// Click Export to generate calibration data"></textarea>
+    </div>
+  </div>
+  <div id="canvas-wrap">
+    <canvas id="canvas" width="512" height="384"></canvas>
+  </div>
+</div>
+
+<script>
+// ── Sprite / floor data (mirrors App.jsx) ───────────────────────────────────
+const S = {
+  'Room - Room.png':            {ox:0,   oy:0,   w:512, h:384},
+  'Room - Bed.png':             {ox:189, oy:85,  w:170, h:128, anchorFx:0.4765, anchorFy:0.6328, boxW:0.30, boxD:0.22, boxH:65},
+  'Room - Bookshelf.png':       {ox:13,  oy:105, w:138, h:158, anchorFx:0.4638, anchorFy:0.981,  boxW:0.24, boxD:0.09, boxH:90},
+  'Room - Coffee.png':          {ox:231, oy:283, w:19,  h:25,  anchorFx:0.3684, anchorFy:0.96,   boxW:0.04, boxD:0.04, boxH:15},
+  'Room - Cat.png':             {ox:252, oy:131, w:51,  h:30,  anchorFx:0.5294, anchorFy:1,      boxW:0.09, boxD:0.05, boxH:12},
+  'Room - Duck teddy.png':      {ox:134, oy:189, w:31,  h:44,  anchorFx:0.5161, anchorFy:1,      boxW:0.06, boxD:0.05, boxH:22},
+  'Room - Frog Teddy.png':      {ox:54,  oy:229, w:33,  h:45,  anchorFx:0.5152, anchorFy:0.9556, boxW:0.06, boxD:0.05, boxH:22},
+  'Room - Plant oval base.png': {ox:136, oy:130, w:76,  h:68,  anchorFx:0.4605, anchorFy:1,      boxW:0.13, boxD:0.13, boxH:45},
+  'Room - Plant.png':           {ox:128, oy:238, w:76,  h:89,  anchorFx:0.4737, anchorFy:0.9775, boxW:0.12, boxD:0.12, boxH:55},
+  'Room - Speakers.png':        {ox:299, oy:159, w:57,  h:55,  anchorFx:0.4561, anchorFy:1,      boxW:0.10, boxD:0.08, boxH:28},
+  'Room - Table.png':           {ox:208, oy:245, w:164, h:131, anchorFx:0.9878, anchorFy:1,      boxW:0.30, boxD:0.22, boxH:55},
+  'Room - Vinyl Player.png':    {ox:302, oy:243, w:60,  h:43,  anchorFx:0.50,   anchorFy:0.95,   boxW:0.10, boxD:0.08, boxH:18},
+};
+
+const OBJECTS = Object.keys(S).filter(n => n !== 'Room - Room.png');
+
+const FLOOR = {top:{x:256,y:128}, left:{x:6,y:253}, right:{x:505,y:254}, bot:{x:256,y:378}};
+
+function toScreen(lx, ly) {
+  const {top,left,right,bot} = FLOOR;
+  return {
+    sx: top.x+(right.x-top.x)*lx+(left.x-top.x)*ly+(bot.x-right.x-left.x+top.x)*lx*ly,
+    sy: top.y+(right.y-top.y)*lx+(left.y-top.y)*ly+(bot.y-right.y-left.y+top.y)*lx*ly,
+  };
+}
+
+function fromScreen(sx, sy) {
+  let lx=(sx-FLOOR.left.x)/(FLOOR.right.x-FLOOR.left.x);
+  let ly=(sy-FLOOR.top.y)/(FLOOR.bot.y-FLOOR.top.y);
+  for(let i=0;i<8;i++){
+    const p=toScreen(lx,ly);
+    lx=Math.max(0,Math.min(1,lx+(sx-p.sx)/(FLOOR.right.x-FLOOR.left.x)));
+    ly=Math.max(0,Math.min(1,ly+(sy-p.sy)/(FLOOR.bot.y-FLOOR.top.y)));
+  }
+  return {lx,ly};
+}
+
+// ── State ───────────────────────────────────────────────────────────────────
+const canvas  = document.getElementById('canvas');
+const ctx     = canvas.getContext('2d');
+const imgs    = {};
+let   selName = null;
+
+// Per-sprite calibration data (copy from S defaults)
+const cal = {};
+for(const n of OBJECTS){
+  const sp = S[n];
+  cal[n] = {
+    anchorFx: sp.anchorFx ?? 0.5,
+    anchorFy: sp.anchorFy ?? 0.98,
+    boxW:     sp.boxW    ?? 0.10,
+    boxD:     sp.boxD    ?? 0.10,
+    boxH:     sp.boxH    ?? 30,
+  };
+}
+
+// ── Image loading ────────────────────────────────────────────────────────────
+function loadImg(name) {
+  if(imgs[name]) return;
+  const img = new Image();
+  img.src = `/sprites/${name}`;
+  img.onload  = () => { imgs[name] = img; draw(); };
+  img.onerror = () => {
+    // Fallback: try relative path for direct file:// opening
+    const img2 = new Image();
+    img2.src = `../public/sprites/${name}`;
+    img2.onload  = () => { imgs[name] = img2; draw(); };
+    img2.onerror = () => console.warn('Could not load sprite:', name);
+  };
+}
+
+// Load room background and all sprites
+loadImg('Room - Room.png');
+OBJECTS.forEach(loadImg);
+
+// ── Slider bindings ──────────────────────────────────────────────────────────
+const slW = document.getElementById('sl-w');
+const slD = document.getElementById('sl-d');
+const slH = document.getElementById('sl-h');
+
+function syncSliders() {
+  if(!selName) return;
+  const c = cal[selName];
+  slW.value = c.boxW;  document.getElementById('lbl-w').textContent = c.boxW.toFixed(2);
+  slD.value = c.boxD;  document.getElementById('lbl-d').textContent = c.boxD.toFixed(2);
+  slH.value = c.boxH;  document.getElementById('lbl-h').textContent = c.boxH;
+}
+
+slW.addEventListener('input', () => {
+  if(!selName) return;
+  cal[selName].boxW = parseFloat(slW.value);
+  document.getElementById('lbl-w').textContent = slW.value;
+  draw();
+});
+slD.addEventListener('input', () => {
+  if(!selName) return;
+  cal[selName].boxD = parseFloat(slD.value);
+  document.getElementById('lbl-d').textContent = slD.value;
+  draw();
+});
+slH.addEventListener('input', () => {
+  if(!selName) return;
+  cal[selName].boxH = parseInt(slH.value, 10);
+  document.getElementById('lbl-h').textContent = slH.value;
+  draw();
+});
+
+// ── Sprite list ──────────────────────────────────────────────────────────────
+const listEl = document.getElementById('spriteList');
+OBJECTS.forEach(n => {
+  const btn = document.createElement('button');
+  btn.className = 'sl-btn';
+  btn.textContent = n.replace('Room - ','').replace('.png','');
+  btn.dataset.name = n;
+  btn.onclick = () => selectSprite(n);
+  listEl.appendChild(btn);
+});
+
+function selectSprite(name) {
+  selName = name;
+  listEl.querySelectorAll('.sl-btn').forEach(b => b.classList.toggle('active', b.dataset.name === name));
+  syncSliders();
+  updateAnchorInfo();
+  document.getElementById('hint').textContent = 'Click on the sprite to set its floor contact point';
+  draw();
+}
+
+// ── Anchor info ──────────────────────────────────────────────────────────────
+function updateAnchorInfo() {
+  if(!selName){ document.getElementById('anchor-info').textContent = 'No sprite selected'; return; }
+  const c = cal[selName];
+  document.getElementById('anchor-info').textContent =
+    `anchorFx: ${c.anchorFx.toFixed(4)}  anchorFy: ${c.anchorFy.toFixed(4)}`;
+}
+
+document.getElementById('btn-reset-anchor').onclick = () => {
+  if(!selName) return;
+  const sp = S[selName];
+  cal[selName].anchorFx = sp.anchorFx ?? 0.5;
+  cal[selName].anchorFy = sp.anchorFy ?? 0.98;
+  updateAnchorInfo();
+  draw();
+};
+
+// ── Drawing ──────────────────────────────────────────────────────────────────
+function drawIsoBox(lx, ly, boxW, boxD, boxH) {
+  // 4 bottom corners (floor level)
+  const BL_b = toScreen(lx - boxW/2, ly - boxD/2);
+  const BR_b = toScreen(lx + boxW/2, ly - boxD/2);
+  const FR_b = toScreen(lx + boxW/2, ly + boxD/2);
+  const FL_b = toScreen(lx - boxW/2, ly + boxD/2);
+
+  // 4 top corners (shifted up by boxH pixels)
+  const BL_t = {sx: BL_b.sx, sy: BL_b.sy - boxH};
+  const BR_t = {sx: BR_b.sx, sy: BR_b.sy - boxH};
+  const FR_t = {sx: FR_b.sx, sy: FR_b.sy - boxH};
+  const FL_t = {sx: FL_b.sx, sy: FL_b.sy - boxH};
+
+  function poly(...pts) {
+    ctx.beginPath();
+    ctx.moveTo(pts[0].sx, pts[0].sy);
+    for(let i=1;i<pts.length;i++) ctx.lineTo(pts[i].sx, pts[i].sy);
+    ctx.closePath();
+  }
+
+  // Floor footprint — dashed yellow
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,230,60,.85)';
+  ctx.lineWidth = 1.5;
+  ctx.setLineDash([4,4]);
+  poly(BL_b, BR_b, FR_b, FL_b);
+  ctx.stroke();
+  ctx.restore();
+
+  // Visible faces with transparent fill
+  // Top face (light blue)
+  ctx.save();
+  ctx.fillStyle   = 'rgba(100,200,255,.18)';
+  ctx.strokeStyle = 'rgba(100,200,255,.7)';
+  ctx.lineWidth   = 1.5;
+  poly(BL_t, BR_t, FR_t, FL_t);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // Right face / lx+ side (orange)
+  ctx.save();
+  ctx.fillStyle   = 'rgba(255,160,80,.18)';
+  ctx.strokeStyle = 'rgba(255,160,80,.7)';
+  ctx.lineWidth   = 1.5;
+  poly(BR_b, FR_b, FR_t, BR_t);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // Front face / ly+ side (green)
+  ctx.save();
+  ctx.fillStyle   = 'rgba(80,220,140,.18)';
+  ctx.strokeStyle = 'rgba(80,220,140,.7)';
+  ctx.lineWidth   = 1.5;
+  poly(FL_b, FR_b, FR_t, FL_t);
+  ctx.fill(); ctx.stroke();
+  ctx.restore();
+
+  // Vertical edges
+  ctx.save();
+  ctx.lineWidth = 1.5;
+  // Back edges (hidden, dashed)
+  ctx.strokeStyle = 'rgba(200,200,200,.4)';
+  ctx.setLineDash([2,4]);
+  [[BL_b,BL_t],[BR_b,BR_t]].forEach(([a,b]) => {
+    ctx.beginPath(); ctx.moveTo(a.sx,a.sy); ctx.lineTo(b.sx,b.sy); ctx.stroke();
+  });
+  // Front edges (visible, solid)
+  ctx.strokeStyle = 'rgba(255,255,255,.75)';
+  ctx.setLineDash([]);
+  [[FL_b,FL_t],[FR_b,FR_t]].forEach(([a,b]) => {
+    ctx.beginPath(); ctx.moveTo(a.sx,a.sy); ctx.lineTo(b.sx,b.sy); ctx.stroke();
+  });
+  ctx.restore();
+}
+
+function draw() {
+  ctx.clearRect(0, 0, 512, 384);
+
+  // Room background
+  if(imgs['Room - Room.png']) ctx.drawImage(imgs['Room - Room.png'], 0, 0, 512, 384);
+
+  if(!selName) return;
+  const sp = S[selName];
+  const c  = cal[selName];
+
+  // Draw sprite at its natural room position
+  if(imgs[selName]) ctx.drawImage(imgs[selName], sp.ox, sp.oy, sp.w, sp.h);
+
+  // Anchor point in screen space
+  const ancSx = sp.ox + c.anchorFx * sp.w;
+  const ancSy = sp.oy + c.anchorFy * sp.h;
+
+  // Convert anchor screen pos to logical pos, then draw box centred there
+  const {lx, ly} = fromScreen(ancSx, ancSy);
+  if(!isNaN(lx) && !isNaN(ly)) drawIsoBox(lx, ly, c.boxW, c.boxD, c.boxH);
+
+  // Anchor cross-hair
+  ctx.save();
+  ctx.strokeStyle = '#ff4040';
+  ctx.lineWidth   = 1.5;
+  ctx.beginPath(); ctx.moveTo(ancSx-6, ancSy); ctx.lineTo(ancSx+6, ancSy); ctx.stroke();
+  ctx.beginPath(); ctx.moveTo(ancSx, ancSy-6); ctx.lineTo(ancSx, ancSy+6); ctx.stroke();
+  ctx.fillStyle = 'rgba(255,60,60,.85)';
+  ctx.beginPath(); ctx.arc(ancSx, ancSy, 3, 0, Math.PI*2); ctx.fill();
+  ctx.restore();
+
+  // Sprite outline (thin white)
+  ctx.save();
+  ctx.strokeStyle = 'rgba(255,255,255,.25)';
+  ctx.lineWidth   = 1;
+  ctx.setLineDash([3,3]);
+  ctx.strokeRect(sp.ox, sp.oy, sp.w, sp.h);
+  ctx.restore();
+}
+
+// ── Canvas click — set anchor ────────────────────────────────────────────────
+canvas.addEventListener('click', e => {
+  if(!selName) return;
+  const rect = canvas.getBoundingClientRect();
+  const scaleX = 512 / rect.width, scaleY = 384 / rect.height;
+  const cx = (e.clientX - rect.left) * scaleX;
+  const cy = (e.clientY - rect.top)  * scaleY;
+
+  const sp = S[selName];
+  // Only set anchor if click is within sprite bounds
+  if(cx >= sp.ox && cx <= sp.ox+sp.w && cy >= sp.oy && cy <= sp.oy+sp.h) {
+    cal[selName].anchorFx = parseFloat(((cx - sp.ox) / sp.w).toFixed(4));
+    cal[selName].anchorFy = parseFloat(((cy - sp.oy) / sp.h).toFixed(4));
+    updateAnchorInfo();
+    document.getElementById('hint').textContent =
+      `Anchor set ✓  (anchorFx=${cal[selName].anchorFx}, anchorFy=${cal[selName].anchorFy})`;
+    draw();
+  } else {
+    document.getElementById('hint').textContent = 'Click within the sprite bounds to set anchor';
+  }
+});
+
+// ── Export ───────────────────────────────────────────────────────────────────
+document.getElementById('btn-export').onclick = () => {
+  const lines = ['// Paste into the S = { ... } table in src/App.jsx', '// (Replace the matching entries)', ''];
+  for(const n of OBJECTS) {
+    const sp = S[n];
+    const c  = cal[n];
+    lines.push(
+      `  '${n}': {ox:${sp.ox}, oy:${sp.oy}, w:${sp.w}, h:${sp.h},` +
+      ` anchorFx:${c.anchorFx}, anchorFy:${c.anchorFy},` +
+      ` boxW:${c.boxW.toFixed(2)}, boxD:${c.boxD.toFixed(2)}, boxH:${c.boxH}},`
+    );
+  }
+  document.getElementById('export-out').value = lines.join('\n');
+};
+
+// Initial draw
+draw();
+</script>
+</body>
+</html>
