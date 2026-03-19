@@ -1,574 +1,1143 @@
 /**
- * SOUND ROOM v3 — Pixel Art Room
- * Tweaked for smoother musical transitions and gentler spatial behaviour.
+ * SOUND ROOM — v2
+ *
+ * Rendering pipeline matched exactly to calibrate_v22 export.
+ * Floor corners from calibrated output (Calibration.txt):
+ *   TOP(256,135)  RIGHT(500,256)  BOT(255,378)  LEFT(11,256)
+ *
+ * Draw formula (identical to calibration tool):
+ *   off = getDrawOffset(anchor, lx, ly, z)
+ *   ctx.drawImage(img, off.x, off.y, 512, 384)
+ *   off.x = l2s(lx,ly).sx - naturalFoot.x + anchorOffsetX
+ *   off.y = l2s(lx,ly).sy - naturalFoot.y + anchorOffsetY - z*16
+ *
+ * Objects use footprint (fp:{w,d,h}) for Unpacking-style collision.
+ * Two footprints overlap when their floor diamonds intersect.
  */
-import { useState, useRef, useCallback, useEffect, useMemo } from 'react';
+import { useState, useRef, useCallback, useEffect } from 'react';
 import './index.css';
 import useOSC from './useOSC';
 
-const RW = 512, RH = 384;
+// ─── CANVAS SIZE ─────────────────────────────────────────────────────────────
+const W = 512, H = 384;
+const TILE_H_PX   = 16;
+const TILE_GRID   = 8;      // 8 logical tiles across the floor
+const SNAP_DIV    = 32;     // snap grid divisions (÷32 ≈ 15px per step)
 
-const S = {
-  'Room - Room.png':            {ox:0,   oy:0,   w:512, h:384},
-  'Room - Day.png':             {ox:387, oy:99,  w:88,  h:115},
-  'Room - Night.png':           {ox:387, oy:99,  w:88,  h:115},
-  'Room - Sun.png':             {ox:395, oy:123, w:31,  h:30},
-  'Room - Moon.png':            {ox:441, oy:145, w:27,  h:29},
-  'Room - Window.png':          {ox:380, oy:96,  w:96,  h:130},
-  'Room - Blinds.png':          {ox:383, oy:97,  w:95,  h:133},
-  'Room - Lamp.png':            {ox:230, oy:30,  w:52,  h:78},
-  'Room - Bed.png': {ox:189, oy:85, w:170, h:128, anchorFx:0.4765, anchorFy:0.6328},
-  'Room - Bookshelf.png': {ox:13, oy:105, w:138, h:158, anchorFx:0.4638, anchorFy:0.981},
-  'Room - Coffee.png': {ox:231, oy:283, w:19, h:25, anchorFx:0.3684, anchorFy:0.96},
-  'Room - Cat.png': {ox:252, oy:131, w:51, h:30, anchorFx:0.5294, anchorFy:1},
-  'Room - Duck teddy.png': {ox:134, oy:189, w:31, h:44, anchorFx:0.5161, anchorFy:1},
-  'Room - Frog Teddy.png': {ox:54, oy:229, w:33, h:45, anchorFx:0.5152, anchorFy:0.9556},
-  'Room - Plant oval base.png': {ox:136, oy:130, w:76, h:68, anchorFx:0.4605, anchorFy:1},
-  'Room - Plant.png': {ox:128, oy:238, w:76, h:89, anchorFx:0.4737, anchorFy:0.9775},
-  'Room - Speakers.png': {ox:299, oy:159, w:57, h:55, anchorFx:0.4561, anchorFy:1},
-  'Room - Table.png': {ox:208, oy:245, w:164, h:131, anchorFx:0.9878, anchorFy:1},
-  'Room - Vinyl Player.png':    {ox:302, oy:243, w:60,  h:43,  anchorFx:0.50, anchorFy:0.95},
-  'Room - Avatar.png':          {ox:233, oy:168, w:43,  h:80,  anchorFx:0.50, anchorFy:0.99},
-};
-
+// ─── FLOOR CORNERS — from calibration export ─────────────────────────────────
 const FLOOR = {
-  top:  {x:256, y:128},
-  left: {x:6, y:253},
-  right:{x:505, y:254},
-  bot:  {x:256, y:378},
+  top:   { x: 256, y: 135 },
+  right: { x: 500, y: 256 },
+  bot:   { x: 255, y: 378 },
+  left:  { x: 11,  y: 256 },
 };
 
-function toScreen(lx, ly) {
-  const {top,left,right,bot}=FLOOR;
+const LAMP_APEX  = { x: 255, y: 54 };
+const LAMP_ANGLE = 90;
+const LAMP_REACH = 120;
+
+const FAIRY_BULBS = [
+  {x:247,y:33},{x:223,y:61},{x:192,y:69},{x:172,y:80},
+  {x:144,y:106},{x:107,y:114},{x:78,y:128},{x:54,y:149},{x:19,y:161},
+];
+
+// ─── ANCHORS — from Calibration.txt export ───────────────────────────────────
+// naturalFoot: pixel in sprite that touches the floor anchor point
+// anchorOffsetX/Y: fine-tune nudge (flat fields, matches calibrate_v22)
+// fp: footprint in tiles {w, d, h}
+const ANCHORS = {
+  'Room - Bookshelf.png':      { lx:0.0625, ly:0.7813, z:0, naturalFoot:{x:79,  y:268}, anchorOffsetX:-1.5, anchorOffsetY:33.5, fp:{w:1,   d:3.5, h:5.25} },
+  'Room - Cat.png':            { lx:0.1875, ly:0.1094, z:0, naturalFoot:{x:277, y:160}, anchorOffsetX:0,    anchorOffsetY:7.5,  fp:{w:1,   d:1,   h:0.75} },
+  'Room - Coffee.png':         { lx:0.6563, ly:0.7188, z:0, naturalFoot:{x:239, y:306}, anchorOffsetX:0,    anchorOffsetY:0,    fp:{w:0.5, d:0.5, h:0.75} },
+  'Room - Duck teddy.png':     { lx:0.1875, ly:0.625,  z:0, naturalFoot:{x:147, y:238}, anchorOffsetX:0,    anchorOffsetY:4.5,  fp:{w:0.5, d:0.5, h:1.75} },
+  'Room - Frog Teddy.png':     { lx:0.1719, ly:0.9531, z:0, naturalFoot:{x:68,  y:280}, anchorOffsetX:-2,   anchorOffsetY:9,    fp:{w:0.5, d:0.75,h:1.75} },
+  'Room - Laptop.png':         { lx:0.7031, ly:0.5781, z:0, naturalFoot:{x:288, y:304}, anchorOffsetX:-4,   anchorOffsetY:17,   fp:{w:1,   d:1.25,h:2}    },
+  'Room - Plant oval base.png':{ lx:0.0938, ly:0.4219, z:0, naturalFoot:{x:173, y:196}, anchorOffsetX:-2,   anchorOffsetY:12.5, fp:{w:1,   d:1,   h:2.25} },
+  'Room - Plant.png':          { lx:0.9219, ly:0.0938, z:0, naturalFoot:{x:461, y:272}, anchorOffsetX:-2,   anchorOffsetY:15,   fp:{w:1,   d:1,   h:3.25} },
+  'Room - Speakers.png':       { lx:0.5,    ly:0.1875, z:0, naturalFoot:{x:332, y:222}, anchorOffsetX:-1.5, anchorOffsetY:16,   fp:{w:0.5, d:1.5, h:1.25} },
+  'Room - Table.png':          { lx:0.9063, ly:0.7656, z:0, naturalFoot:{x:289, y:374}, anchorOffsetX:-2,   anchorOffsetY:34,   fp:{w:1.5, d:3.75,h:3.25} },
+  'Room - Vinyl Player.png':   { lx:0.7031, ly:0.4063, z:0, naturalFoot:{x:331, y:284}, anchorOffsetX:-1.5, anchorOffsetY:14.5, fp:{w:1.25,d:1,   h:0.5}  },
+  'Room - Bed.png':            { lx:0.2188, ly:0.1719, z:0, naturalFoot:{x:274, y:216}, anchorOffsetX:1.5,  anchorOffsetY:43,   fp:{w:3.5, d:2,   h:2.25} },
+  // non-draggable (used for drawing only)
+  'Room - Avatar.png':         { lx:0.5,    ly:0.5,    z:0, naturalFoot:{x:257, y:240}, anchorOffsetX:-2,   anchorOffsetY:0     },
+  'Room - Sun.png':            { lx:0.7188, ly:0.0313, z:0, naturalFoot:{x:423, y:146}, anchorOffsetX:0,    anchorOffsetY:0     },
+  'Room - Moon.png':           { lx:0.9688, ly:0.0938, z:0, naturalFoot:{x:467, y:168}, anchorOffsetX:0,    anchorOffsetY:0     },
+  'Room - Blinds.png':         { lx:0.7422, ly:-0.0234,z:0, naturalFoot:{x:443, y:224}, anchorOffsetX:0.5,  anchorOffsetY:2     },
+};
+
+// ─── KEYFRAMES ────────────────────────────────────────────────────────────────
+const KEYFRAMES = {
+  'Room - Sun.png': [
+    { t:0, lx:0.3906, ly:-0.2969, z:0 },
+    { t:1, lx:0.7188, ly:0.0313,  z:0 },
+  ],
+  'Room - Moon.png': [
+    { t:0, lx:0.5781, ly:-0.2969, z:0 },
+    { t:1, lx:0.9688, ly:0.0938,  z:0 },
+  ],
+  'Room - Blinds.png': [
+    { t:0, lx:0.7422, ly:-0.0234, z:0   },
+    { t:1, lx:0.7422, ly:-0.0234, z:4.5 },
+  ],
+};
+
+// ─── LAYER ORDER ──────────────────────────────────────────────────────────────
+const LAYER_ORDER = [
+  { name:'Room - Background.png',            type:'bg'          },
+  { name:'Room - Floor.png',                 type:'room'        },
+  { name:'Room - Left Wall.png',             type:'room'        },
+  { name:'Room - Fairy lights - String.png', type:'static'      },
+  { name:'Room - Fairy lights - Bulb.png',   type:'light'       },
+  { name:'Room - Right Wall.png',            type:'room'        },
+  { name:'Room - Day sky.png',               type:'bg'          },
+  { name:'Room - Sun.png',                   type:'animated'    },
+  { name:'Room - Night sky.png',             type:'bg'          },
+  { name:'Room - Moon.png',                  type:'animated'    },
+  { name:'Room - Floor cover.png',           type:'room'        },
+  { name:'Room - Window.png',                type:'static'      },
+  { name:'Room - Blinds.png',                type:'interactive' },
+  // ← draggable objects injected here at render time (depth sorted)
+  { name:'Room - Avatar.png',                type:'character'   },
+  { name:'Room - Lamp.png',                  type:'light'       },
+  { name:'Room - blinds cover.png',          type:'static'      },
+];
+
+// ─── OBJECTS (draggable) ──────────────────────────────────────────────────────
+const OBJECTS_DEF = [
+  { id:'Bed',       sprite:'Room - Bed.png',             soundRole:'melody2',  name:'Bed'          },
+  { id:'Bookshelf', sprite:'Room - Bookshelf.png',       soundRole:'bass',     name:'Bookshelf'    },
+  { id:'Table',     sprite:'Room - Table.png',           soundRole:'melody',   name:'Table'        },
+  { id:'Plant',     sprite:'Room - Plant.png',           soundRole:'texture',  name:'Plant (box)'  },
+  { id:'PlantOval', sprite:'Room - Plant oval base.png', soundRole:'harmony',  name:'Plant (oval)' },
+  { id:'Cat',       sprite:'Room - Cat.png',             soundRole:'sparkle',  name:'Cat'          },
+  { id:'Coffee',    sprite:'Room - Coffee.png',          soundRole:null,       name:'Coffee Mug',  isSpeed:true },
+  { id:'Duck',      sprite:'Room - Duck teddy.png',      soundRole:'pad',      name:'Duck Teddy'   },
+  { id:'Frog',      sprite:'Room - Frog Teddy.png',      soundRole:'arp',      name:'Frog Teddy'   },
+  { id:'Laptop',    sprite:'Room - Laptop.png',          soundRole:'laptop',   name:'Laptop'       },
+  { id:'Speakers',  sprite:'Room - Speakers.png',        soundRole:'rhythm',   name:'Speakers'     },
+  { id:'Vinyl',     sprite:'Room - Vinyl Player.png',    soundRole:'vinyl',    name:'Vinyl Player' },
+];
+
+// ─── INTERACTION ZONES ────────────────────────────────────────────────────────
+const ZONES = {
+  blinds_tassel: [
+    {x:488,y:210},{x:484,y:214},{x:485,y:221},
+    {x:488,y:225},{x:491,y:219},{x:490,y:212},
+  ],
+};
+function ptInZone(x, y, zone) {
+  let inside = false;
+  for (let i=0, j=zone.length-1; i<zone.length; j=i++) {
+    const xi=zone[i].x, yi=zone[i].y, xj=zone[j].x, yj=zone[j].y;
+    if ((yi>y)!==(yj>y) && x<(xj-xi)*(y-yi)/(yj-yi)+xi) inside=!inside;
+  }
+  return inside;
+}
+
+// ─── CROP (for tray thumbnails + hit testing) ─────────────────────────────────
+const CROP = {
+  'Room - Bed.png':            { ox:149, oy:81,  w:207, h:146 },
+  'Room - Bookshelf.png':      { ox:11,  oy:95,  w:147, h:179 },
+  'Room - Cat.png':            { ox:249, oy:130, w:53,  h:33  },
+  'Room - Coffee.png':         { ox:228, oy:282, w:22,  h:26  },
+  'Room - Duck teddy.png':     { ox:131, oy:186, w:33,  h:55  },
+  'Room - Frog Teddy.png':     { ox:50,  oy:226, w:36,  h:56  },
+  'Room - Laptop.png':         { ox:258, oy:273, w:64,  h:33  },
+  'Room - Plant oval base.png':{ ox:127, oy:127, w:96,  h:73  },
+  'Room - Plant.png':          { ox:417, oy:237, w:90,  h:91  },
+  'Room - Speakers.png':       { ox:296, oy:155, w:61,  h:62  },
+  'Room - Table.png':          { ox:181, oy:238, w:199, h:138 },
+  'Room - Vinyl Player.png':   { ox:296, oy:240, w:67,  h:45  },
+};
+
+// ─── COORDINATE MATH — verbatim from calibrate_v22 ───────────────────────────
+function l2s(lx, ly) {
+  const { top:T, right:R, bot:B, left:L } = FLOOR;
   return {
-    sx: top.x+(right.x-top.x)*lx+(left.x-top.x)*ly+(bot.x-right.x-left.x+top.x)*lx*ly,
-    sy: top.y+(right.y-top.y)*lx+(left.y-top.y)*ly+(bot.y-right.y-left.y+top.y)*lx*ly,
+    sx: T.x + (R.x-T.x)*lx + (L.x-T.x)*ly + (B.x-R.x-L.x+T.x)*lx*ly,
+    sy: T.y + (R.y-T.y)*lx + (L.y-T.y)*ly + (B.y-R.y-L.y+T.y)*lx*ly,
   };
 }
 
-function fromScreen(sx, sy) {
-  let lx=(sx-FLOOR.left.x)/(FLOOR.right.x-FLOOR.left.x);
-  let ly=(sy-FLOOR.top.y)/(FLOOR.bot.y-FLOOR.top.y);
-  for(let i=0;i<8;i++){
-    const p=toScreen(lx,ly);
-    lx=Math.max(0.02,Math.min(0.98,lx+(sx-p.sx)/(FLOOR.right.x-FLOOR.left.x)));
-    ly=Math.max(0.02,Math.min(0.98,ly+(sy-p.sy)/(FLOOR.bot.y-FLOOR.top.y)));
+function s2l(sx, sy) {
+  const { top:T, right:R, bot:B, left:L } = FLOOR;
+  let lx=(sx-L.x)/(R.x-L.x), ly=(sy-T.y)/(B.y-T.y);
+  for (let i=0; i<20; i++) {
+    const p=l2s(lx,ly);
+    lx += (sx-p.sx)/(R.x-L.x)*0.5;
+    ly += (sy-p.sy)/(B.y-T.y)*0.5;
+    lx=Math.max(-0.3,Math.min(1.3,lx));
+    ly=Math.max(-0.3,Math.min(1.3,ly));
   }
-  return {lx,ly};
+  if (isNaN(lx)) lx=0.5;
+  if (isNaN(ly)) ly=0.5;
+  return { lx, ly };
 }
 
-function clamp(v, lo, hi) {
-  return Math.max(lo, Math.min(hi, v));
+// snapAndClamp — snaps to grid and clamps so the object footprint EDGES
+// stay within floor [0,1]. Pass sprite name to account for fp half-extents.
+function snapAndClamp(lx, ly, sprite, snapDivOverride) {
+  const div = snapDivOverride ?? SNAP_DIV;
+  const step = 1 / div;
+
+  // Footprint half-extents in logical [0,1] space
+  const fp = sprite ? ANCHORS[sprite]?.fp : null;
+  const hw = fp ? (fp.w / TILE_GRID) / 2 : 0;
+  const hd = fp ? (fp.d / TILE_GRID) / 2 : 0;
+
+  // Snap then clamp so edges stay within [0,1]
+  let slx = Math.round(lx / step) * step;
+  let sly = Math.round(ly / step) * step;
+  slx = Math.max(hw, Math.min(1 - hw, slx));
+  sly = Math.max(hd, Math.min(1 - hd, sly));
+  // Re-snap after clamp, then final safety clamp
+  slx = Math.max(hw, Math.min(1 - hw, Math.round(slx / step) * step));
+  sly = Math.max(hd, Math.min(1 - hd, Math.round(sly / step) * step));
+
+  return { lx: +slx.toFixed(4), ly: +sly.toFixed(4) };
 }
 
-// Gentler horizontal pan. This gives a more believable spatial image than the old diagonal mapping.
-function computePan(lx) {
-  return clamp((lx - 0.5) * 1.5, -0.75, 0.75);
+function getDrawOffset(p, overrideLx, overrideLy, overrideZ) {
+  const lx = overrideLx ?? p?.lx;
+  const ly = overrideLy ?? p?.ly;
+  const z  = overrideZ  ?? p?.z ?? 0;
+  if (lx===undefined || ly===undefined) return { x:0, y:0 };
+  const target = l2s(lx, ly);
+  const nf  = p?.naturalFoot || { x:256, y:256 };
+  const aox = p?.anchorOffsetX || 0;
+  const aoy = p?.anchorOffsetY || 0;
+  return { x: target.sx-nf.x+aox, y: target.sy-nf.y+aoy-z*TILE_H_PX };
 }
 
-// Depth-based level so front objects are a little clearer, but nothing gets too loud.
+function interpKFsLinear(kfs, t) {
+  const s=[...kfs].sort((a,b)=>a.t-b.t);
+  if (!s.length) return {lx:0.5,ly:0.5,z:0};
+  if (t<=s[0].t) return {...s[0]};
+  if (t>=s[s.length-1].t) return {...s[s.length-1]};
+  for (let i=0;i<s.length-1;i++) {
+    if (t>=s[i].t && t<=s[i+1].t) {
+      const p=(t-s[i].t)/(s[i+1].t-s[i].t);
+      return { lx:s[i].lx+(s[i+1].lx-s[i].lx)*p, ly:s[i].ly+(s[i+1].ly-s[i].ly)*p, z:s[i].z+(s[i+1].z-s[i].z)*p };
+    }
+  }
+  return {...s[s.length-1]};
+}
+
+function interpKFs(kfs, t) {
+  const s=[...kfs].sort((a,b)=>a.t-b.t);
+  if (!s.length) return {lx:0.5,ly:0.5,z:0};
+  if (t<=s[0].t) return {...s[0]};
+  if (t>=s[s.length-1].t) return {...s[s.length-1]};
+  for (let i=0;i<s.length-1;i++) {
+    if (t>=s[i].t && t<=s[i+1].t) {
+      const p=(t-s[i].t)/(s[i+1].t-s[i].t);
+      const e=p<0.5?4*p*p*p:(p-1)*(2*p-2)*(2*p-2)+1;
+      return { lx:s[i].lx+(s[i+1].lx-s[i].lx)*e, ly:s[i].ly+(s[i+1].ly-s[i].ly)*e, z:s[i].z+(s[i+1].z-s[i].z)*e };
+    }
+  }
+  return {...s[s.length-1]};
+}
+
+// ─── FOOTPRINT COLLISION ──────────────────────────────────────────────────────
+// Returns the 4 floor-space corners of an object's footprint diamond.
+// We use lx/ly as the CENTRE of the footprint.
+function fpCorners(lx, ly, fp) {
+  const hw = (fp.w/TILE_GRID)/2;
+  const hd = (fp.d/TILE_GRID)/2;
+  return [
+    l2s(lx-hw, ly-hd),
+    l2s(lx+hw, ly-hd),
+    l2s(lx+hw, ly+hd),
+    l2s(lx-hw, ly+hd),
+  ];
+}
+
+// Axis-aligned bounding box overlap check in floor (lx,ly) space.
+// Two objects overlap if their floor rectangles [lx±hw, ly±hd] intersect.
+function fpOverlapsLX(alx, aly, afp, blx, bly, bfp) {
+  const ahw=(afp.w/TILE_GRID)/2, ahd=(afp.d/TILE_GRID)/2;
+  const bhw=(bfp.w/TILE_GRID)/2, bhd=(bfp.d/TILE_GRID)/2;
+  const overlapX = Math.abs(alx-blx) < (ahw+bhw);
+  const overlapY = Math.abs(aly-bly) < (ahd+bhd);
+  return overlapX && overlapY;
+}
+
+// Returns true if placing `sprite` at (lx,ly) would overlap any other placed object.
+function wouldOverlap(sprite, lx, ly, placed) {
+  const a = ANCHORS[sprite];
+  if (!a?.fp) return false;
+  for (const [other, pos] of Object.entries(placed)) {
+    if (other===sprite || !pos) continue;
+    const b = ANCHORS[other];
+    if (!b?.fp) continue;
+    if (fpOverlapsLX(lx, ly, a.fp, pos.lx, pos.ly, b.fp)) return true;
+  }
+  return false;
+}
+
+// ─── AUDIO ───────────────────────────────────────────────────────────────────
+function clamp(v,lo,hi) { return Math.max(lo,Math.min(hi,v)); }
+function computePan(lx) { return clamp((lx-0.5)*1.5,-0.75,0.75); }
 function computeVol(lx, ly) {
-  const depth = clamp(ly, 0, 1);
-  const centreBias = 1 - Math.min(1, Math.abs(lx - 0.5) * 1.2);
-  return 0.16 + 0.28 * Math.pow(depth, 0.65) + 0.06 * centreBias;
+  return 0.16+0.28*Math.pow(clamp(ly,0,1),0.65)+0.06*(1-Math.min(1,Math.abs(lx-0.5)*1.2));
 }
 
-function getObjPos(sprite, lx, ly) {
-  const sp=S[sprite];
-  if(!sp) return {left:0,top:0,width:0,height:0};
-  const {sx,sy}=toScreen(lx,ly);
-  const ax=sp.w*(sp.anchorFx??0.5);
-  const ay=sp.h*(sp.anchorFy??0.98);
-  return {left:Math.round(sx-ax), top:Math.round(sy-ay), width:sp.w, height:sp.h};
+// ─── THUMBNAIL ───────────────────────────────────────────────────────────────
+function Thumbnail({ src: imgSrc, sprite, maxW=80, maxH=60 }) {
+  const c = CROP[sprite];
+  if (!c) return <img src={imgSrc} alt="" draggable={false}
+    style={{ maxWidth:maxW,maxHeight:maxH,imageRendering:'pixelated',objectFit:'contain',display:'block' }}/>;
+  const pad=6;
+  const scale=Math.min(maxW/(c.w+pad*2), maxH/(c.h+pad*2));
+  const dw=Math.round(W*scale), dh=Math.round(H*scale);
+  const tw=Math.round((c.w+pad*2)*scale), th=Math.round((c.h+pad*2)*scale);
+  const ml=Math.round((-c.ox+pad)*scale), mt=Math.round((-c.oy+pad)*scale);
+  return (
+    <div style={{ width:tw,height:th,overflow:'hidden',flexShrink:0 }}>
+      <img src={imgSrc} alt="" draggable={false}
+        style={{ width:dw,height:dh,marginLeft:ml,marginTop:mt,imageRendering:'pixelated',display:'block',flexShrink:0 }}/>
+    </div>
+  );
 }
 
-const OBJECTS_DEF = [
-  {id:'Bed',      sprite:'Room - Bed.png',            soundRole:'melody2', name:'Bed'},
-  {id:'Bookshelf',sprite:'Room - Bookshelf.png',      soundRole:'bass',    name:'Bookshelf'},
-  {id:'Cat',      sprite:'Room - Cat.png',            soundRole:'sparkle', name:'Cat'},
-  {id:'Coffee',   sprite:'Room - Coffee.png',         soundRole:null,      name:'Coffee Mug', isSpeed:true},
-  {id:'Duck',     sprite:'Room - Duck teddy.png',     soundRole:'pad',     name:'Duck Teddy'},
-  {id:'Frog',     sprite:'Room - Frog Teddy.png',     soundRole:'arp',     name:'Frog Teddy'},
-  {id:'PlantOval',sprite:'Room - Plant oval base.png',soundRole:'harmony', name:'Plant (oval)'},
-  {id:'PlantBox', sprite:'Room - Plant.png',          soundRole:'texture', name:'Plant (box)'},
-  {id:'Speakers', sprite:'Room - Speakers.png',       soundRole:'rhythm',  name:'Speakers'},
-  {id:'Table',    sprite:'Room - Table.png',          soundRole:'melody',  name:'Table'},
-];
-
-function Dial({value,onChange,label,size=52,color='#d4a840'}) {
-  const drag=useRef(false),sY=useRef(0),sV=useRef(0);
-  const MIN=-135,MAX=135,deg=MIN+(value/100)*(MAX-MIN);
-  const atMin=value<=0,atMax=value>=100;
+// ─── DIAL ─────────────────────────────────────────────────────────────────────
+function Dial({ value, onChange, label, size=52, color='#d4a840' }) {
+  const drag=useRef(false), sY=useRef(0), sV=useRef(0);
+  const MIN=-135, MAX=135, deg=MIN+(value/100)*(MAX-MIN);
+  const atMin=value<=0, atMax=value>=100;
   const onPD=useCallback((e)=>{
-    e.preventDefault();drag.current=true;sY.current=e.clientY;sV.current=value;
-    const m=(me)=>{if(!drag.current)return;
-      onChange(Math.max(0,Math.min(100,Math.round(sV.current+(sY.current-me.clientY)*0.8))));};
-    const u=()=>{drag.current=false;window.removeEventListener('pointermove',m);window.removeEventListener('pointerup',u);};
-    window.addEventListener('pointermove',m);window.addEventListener('pointerup',u);
+    e.preventDefault(); drag.current=true; sY.current=e.clientY; sV.current=value;
+    const m=(me)=>{ if(!drag.current)return; onChange(Math.max(0,Math.min(100,Math.round(sV.current+(sY.current-me.clientY)*0.8)))); };
+    const u=()=>{ drag.current=false; window.removeEventListener('pointermove',m); window.removeEventListener('pointerup',u); };
+    window.addEventListener('pointermove',m); window.addEventListener('pointerup',u);
   },[value,onChange]);
   const cx=size/2,cy=size/2,r=size*0.38,rad=deg*Math.PI/180;
-  const dx=cx+Math.cos(rad)*r*0.65,dy=cy+Math.sin(rad)*r*0.65;
-  const sR=MIN*Math.PI/180,aR=r*0.85;
-  const x1=cx+Math.cos(sR)*aR,y1=cy+Math.sin(sR)*aR;
-  const x2=cx+Math.cos(rad)*aR,y2=cy+Math.sin(rad)*aR;
+  const dx=cx+Math.cos(rad)*r*0.65, dy=cy+Math.sin(rad)*r*0.65;
+  const sR=MIN*Math.PI/180, aR=r*0.85;
+  const x1=cx+Math.cos(sR)*aR, y1=cy+Math.sin(sR)*aR;
+  const x2=cx+Math.cos(rad)*aR, y2=cy+Math.sin(rad)*aR;
   const la=(deg-MIN)>180?1:0;
-  return(
-    <div style={{display:'flex',flexDirection:'column',alignItems:'center',gap:3,userSelect:'none'}}>
-      <svg width={size} height={size} style={{cursor:'ns-resize',touchAction:'none'}} onPointerDown={onPD}>
-        <circle cx={cx} cy={cy} r={r} fill="rgba(0,0,0,.3)"
-          stroke={atMin||atMax?color:'rgba(200,160,80,.2)'} strokeWidth={atMin||atMax?2:1}/>
-        <path d={`M${x1} ${y1} A${aR} ${aR} 0 ${la} 1 ${x2} ${y2}`}
-          fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" opacity={0.85}/>
+  return (
+    <div style={{ display:'flex',flexDirection:'column',alignItems:'center',gap:3,userSelect:'none' }}>
+      <svg width={size} height={size} style={{ cursor:'ns-resize',touchAction:'none' }} onPointerDown={onPD}>
+        <circle cx={cx} cy={cy} r={r} fill="rgba(0,0,0,.3)" stroke={atMin||atMax?color:'rgba(200,160,80,.2)'} strokeWidth={atMin||atMax?2:1}/>
+        <path d={`M${x1} ${y1} A${aR} ${aR} 0 ${la} 1 ${x2} ${y2}`} fill="none" stroke={color} strokeWidth={2.5} strokeLinecap="round" opacity={0.85}/>
         <circle cx={cx} cy={cy} r={r*.72} fill={atMin?'#1a1408':atMax?color:'#4a3a20'} stroke={color} strokeWidth={1.5}/>
         <circle cx={dx} cy={dy} r={2.5} fill={atMin?'rgba(255,200,80,.25)':'#fffbe8'}/>
         {(atMin||atMax)&&<text x={cx} y={cy+3} textAnchor="middle" fontSize={size*.22} fill={color} fontFamily="monospace">{atMax?'●':'○'}</text>}
       </svg>
-      <div style={{fontSize:7,color:'rgba(200,160,80,.6)',letterSpacing:1,fontFamily:"'Courier New',monospace"}}>{label} {value}%</div>
+      <div style={{ fontSize:7,color:'rgba(200,160,80,.6)',letterSpacing:1,fontFamily:"'Courier New',monospace" }}>{label} {value}%</div>
     </div>
   );
 }
 
+// ─── ISO CUBE DRAW ────────────────────────────────────────────────────────────
+// Draws an isometric cube on a canvas context, matching calibrate_v22's isoCubeZ
+function drawIsoCube(ctx, lx, ly, w, d, h, zPx, topC, leftC, rightC, strokeC) {
+  const fh = FLOOR.bot.y - FLOOR.top.y;
+  const pixH = h * fh * 0.55;
+  const lift = (p) => ({ sx: p.sx, sy: p.sy - zPx });
+  const bl=lift(l2s(lx,ly+d)), br=lift(l2s(lx+w,ly+d));
+  const fl=lift(l2s(lx,ly)),   fr=lift(l2s(lx+w,ly));
+  const BLT={sx:bl.sx,sy:bl.sy-pixH}, BRT={sx:br.sx,sy:br.sy-pixH};
+  const FLT={sx:fl.sx,sy:fl.sy-pixH}, FRT={sx:fr.sx,sy:fr.sy-pixH};
+  [[BLT,BRT,FRT,FLT],[FLT,FRT,fr,fl],[FRT,BRT,br,fr]].forEach((pts,i) => {
+    ctx.beginPath(); ctx.moveTo(pts[0].sx,pts[0].sy);
+    pts.slice(1).forEach(p=>ctx.lineTo(p.sx,p.sy)); ctx.closePath();
+    ctx.fillStyle=[topC,leftC,rightC][i]; ctx.fill();
+    ctx.strokeStyle=strokeC; ctx.lineWidth=1; ctx.stroke();
+  });
+}
+
+// ─── DEBUG PANEL (sidebar matching calibrate_v22) ─────────────────────────────
+function DebugPanel({
+  floor, snapDiv, onSnapDivChange,
+  placed, sel, setSel, anchors,
+  showFP, setShowFP, showCubes, setShowCubes,
+  objects,
+}) {
+  const mono = { fontFamily:"'Consolas',monospace", fontSize:9 };
+  const dim  = '#485868', acc='#e8c84a', blu='#4ac8e8', grn='#4ae880', red='#e84a60';
+  const sec  = { borderBottom:'1px solid #1c2638', padding:'8px 10px' };
+  const hdr  = { fontSize:9, color:dim, letterSpacing:2, textTransform:'uppercase', marginBottom:6, ...mono };
+  const row  = { display:'flex', alignItems:'center', justifyContent:'space-between', padding:'3px 0' };
+
+  return (
+    <div style={{ width:270, background:'#10141e', borderLeft:'1px solid #1c2638',
+      display:'flex', flexDirection:'column', overflowY:'auto', flexShrink:0, ...mono }}>
+
+      <div style={{ padding:10, borderBottom:'1px solid #1c2638' }}>
+        <div style={{ fontSize:12, color:acc, letterSpacing:3, fontWeight:700 }}>◆ DEBUG</div>
+        <div style={{ fontSize:7, color:dim }}>ANCHOR · GRID · FOOTPRINT</div>
+      </div>
+
+      {/* Floor Corners */}
+      <div style={sec}>
+        <div style={hdr}>Floor Corners <span style={{ color:grn }}>✓ calibrated</span></div>
+        {[['TOP',floor.top,'#e84a4a'],['RIGHT',floor.right,'#e8e84a'],['BOT',floor.bot,'#4a4ae8'],['LEFT',floor.left,'#4ae880']].map(([lbl,p,c])=>(
+          <div key={lbl} style={{ display:'flex', gap:8, fontSize:8, marginBottom:1 }}>
+            <span style={{ color:c, minWidth:36 }}>{lbl}</span>
+            <span style={{ color:blu }}>({p.x},{p.y})</span>
+          </div>
+        ))}
+      </div>
+
+      {/* Snap Grid */}
+      <div style={sec}>
+        <div style={hdr}>Snap Grid</div>
+        <div style={row}>
+          <span style={{ fontSize:8, color:dim }}>Div: ÷{snapDiv}</span>
+          <input type="range" min={4} max={32} step={4} value={snapDiv}
+            onChange={e=>onSnapDivChange(+e.target.value)}
+            style={{ flex:1, marginLeft:8, accentColor:blu }}/>
+        </div>
+        <div style={{ fontSize:7, color:dim, marginTop:2 }}>÷4≈122px · ÷8≈61px · ÷16≈30px · ÷32≈15px</div>
+      </div>
+
+      {/* Objects */}
+      <div style={sec}>
+        <div style={hdr}>Objects</div>
+        <div style={row}>
+          <span style={{ fontSize:8, color:dim }}>Footprints</span>
+          <label style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer' }}>
+            <input type="checkbox" checked={showFP} onChange={e=>setShowFP(e.target.checked)} style={{ accentColor:blu }}/>
+          </label>
+        </div>
+        <div style={row}>
+          <span style={{ fontSize:8, color:dim }}>Iso cubes</span>
+          <label style={{ display:'flex', alignItems:'center', gap:4, cursor:'pointer' }}>
+            <input type="checkbox" checked={showCubes} onChange={e=>setShowCubes(e.target.checked)} style={{ accentColor:blu }}/>
+          </label>
+        </div>
+        <div style={{ marginTop:6, maxHeight:280, overflowY:'auto' }}>
+          {objects.map(o => {
+            const p = placed[o.sprite];
+            const isSel = sel===o.sprite;
+            const isPlaced = !!p;
+            return (
+              <div key={o.id} onClick={()=>setSel(isSel?null:o.sprite)}
+                style={{ display:'flex', alignItems:'center', gap:4, padding:'4px 5px',
+                  borderRadius:3, cursor:'pointer', marginBottom:2,
+                  border:`1px solid ${isSel?acc:isPlaced?grn:'#1c2638'}`,
+                  background:isSel?'#1a1800':isPlaced?'#0a1410':'#080d14',
+                  borderLeft:isPlaced?`3px solid ${grn}`:'1px solid #1c2638' }}>
+                <div style={{ flex:1, overflow:'hidden' }}>
+                  <div style={{ fontSize:9, color:isSel?acc:'#b0c4d8', whiteSpace:'nowrap', overflow:'hidden', textOverflow:'ellipsis' }}>{o.name}</div>
+                  {p ? (
+                    <div style={{ fontSize:7, color:dim }}>lx:{p.lx.toFixed(3)} ly:{p.ly.toFixed(3)}</div>
+                  ) : (
+                    <div style={{ fontSize:7, color:dim }}>not placed</div>
+                  )}
+                </div>
+                {isPlaced && <span style={{ fontSize:9, color:grn }}>●</span>}
+              </div>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Selected object info */}
+      {sel && placed[sel] && anchors[sel] && (
+        <div style={sec}>
+          <div style={hdr}>Selected: {sel.replace('Room - ','').replace('.png','')}</div>
+          {(() => {
+            const p = placed[sel];
+            const a = anchors[sel];
+            const fp = a.fp;
+            const ax=((p.lx||.5)-.5)*10, az=((p.ly||.5)-.5)*10;
+            return (
+              <>
+                <div style={{ fontSize:8, color:dim, lineHeight:1.9 }}>
+                  <span style={{ color:blu }}>lx:</span><span style={{ color:acc }}> {p.lx.toFixed(4)}</span>
+                  {'  '}<span style={{ color:blu }}>ly:</span><span style={{ color:acc }}> {p.ly.toFixed(4)}</span>
+                </div>
+                <div style={{ fontSize:8, color:dim, lineHeight:1.9 }}>
+                  <span style={{ color:blu }}>tile:</span><span style={{ color:acc }}> ({Math.round(p.lx*TILE_GRID)},{Math.round(p.ly*TILE_GRID)})</span>
+                </div>
+                {fp && <>
+                  <div style={{ fontSize:8, color:dim, lineHeight:1.9 }}>
+                    <span style={{ color:blu }}>fp:</span><span style={{ color:grn }}> w:{fp.w} d:{fp.d} h:{fp.h} tiles</span>
+                  </div>
+                  <div style={{ fontSize:7, color:dim, lineHeight:1.6 }}>
+                    3D audio: x={ax.toFixed(2)} z={az.toFixed(2)}
+                  </div>
+                </>}
+                <div style={{ fontSize:8, color:dim, lineHeight:1.9 }}>
+                  <span style={{ color:blu }}>naturalFoot:</span><span style={{ color:dim }}> ({a.naturalFoot.x},{a.naturalFoot.y})</span>
+                </div>
+                <div style={{ fontSize:8, color:dim }}>
+                  <span style={{ color:blu }}>anchorOffset:</span><span style={{ color:dim }}> ({a.anchorOffsetX},{a.anchorOffsetY})</span>
+                </div>
+              </>
+            );
+          })()}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── APP ──────────────────────────────────────────────────────────────────────
 export default function App() {
-  const roomRef=useRef(null);
-  const [placed,setPlaced]=useState([]);
-  const [drag,setDrag]=useState(null);
-  const [sel,setSel]=useState(null);
-  const [touchOrder,setTouchOrder]=useState([]);
-  const [speed,setSpeed]=useState(1.0);
-  const [lamp,setLamp]=useState(0);
-  const [blinds,setBlinds]=useState(0);
-  const [weather,setWeather]=useState('clear');
-  const [dn,setDn]=useState(0);
-  const [showLoad,setShowLoad]=useState(true);
-  const [started,setStarted]=useState(false);
-  const [hovTray,setHovTray]=useState(null);
-  const [trayDrag,setTrayDrag]=useState(null);
-  const trayDragRef=useRef(null);
-  const transitionTimers=useRef([]);
-  const prevIsNight=useRef(false);
-  const osc=useOSC();
+  const bgRef  = useRef(null);
+  const ltRef  = useRef(null);
+  const ovRef  = useRef(null);  // receives pointer events + debug overlay
+  const imgs   = useRef({});
+  const [imgsLoaded, setImgsLoaded] = useState(false);
 
-  const isNight=dn>=50, n=dn/100;
-  const BLIND_H=133;
-  const blindSlideY = -BLIND_H + (blinds/100)*BLIND_H;
-  const lampAlpha=(lamp/100)*0.5;
-  const lampRadius=30+lamp*0.5;
-  const CFMS=5000;
+  const [placed,   setPlaced]   = useState({});
+  const [sel,      setSel]      = useState(null);
+  const [debug,    setDebug]    = useState(false);
+  const [drag,     setDrag]     = useState(null);
 
-  const clearTransitionTimers = useCallback(() => {
-    transitionTimers.current.forEach(clearTimeout);
-    transitionTimers.current = [];
+  // Debug panel sub-settings
+  const [snapDiv,    setSnapDiv]    = useState(32); // default ÷32 ≈ 15px
+  const [showFP,     setShowFP]     = useState(true);
+  const [showCubes,  setShowCubes]  = useState(true);
+
+  const [lamp,     setLamp]     = useState(0);
+  const [blindsT,  setBlindsT]  = useState(0);
+  const [dn,       setDn]       = useState(0);
+  const [weather,  setWeather]  = useState('clear');
+  const [speed,    setSpeed]    = useState(1.0);
+  const [showLoad, setShowLoad] = useState(true);
+  const [started,  setStarted]  = useState(false);
+  const [hovTray,  setHovTray]  = useState(null);
+  const [trayDrag, setTrayDrag] = useState(null);
+  const [blindsDragging, setBlindsDragging] = useState(false);
+  const [dropBlocked,    setDropBlocked]    = useState(false); // flash red when collision
+  const [mouseLXY, setMouseLXY] = useState(null); // live cursor lx/ly for debug
+
+  const blindsDragStartY = useRef(0);
+  const blindsDragStartT = useRef(0);
+  const trayDragRef      = useRef(null);
+  const placedRef        = useRef(placed);
+  useEffect(() => { placedRef.current = placed; }, [placed]);
+
+  const transTimers = useRef([]);
+  const prevNight   = useRef(false);
+  const osc = useOSC();
+  const isNight = dn >= 0.5;
+  const CFMS = 5000;
+
+  // ── Dynamic snap — delegates to snapAndClamp with current snapDiv ───────────
+  const snapAndClampDyn = useCallback((lx, ly, sprite) => {
+    return snapAndClamp(lx, ly, sprite, snapDiv);
+  }, [snapDiv]);
+
+  // ── Load images ────────────────────────────────────────────────────────────
+  useEffect(() => {
+    const names = [...new Set([...LAYER_ORDER.map(l=>l.name), ...OBJECTS_DEF.map(o=>o.sprite)])];
+    let pending = names.length;
+    const done = () => { if (--pending===0) setImgsLoaded(true); };
+    names.forEach(name => {
+      if (imgs.current[name]) { done(); return; }
+      const img = new Image();
+      img.onload = () => { imgs.current[name]=img; done(); };
+      img.onerror = done;
+      img.src = `/sprites/${name}`;
+    });
   }, []);
 
-  const sendRoleState = useCallback((soundRole, obj) => {
-    if (!soundRole) return;
-    if (obj) {
-      osc.send(
-        `/soundroom/layer/${soundRole}`,
-        computePan(obj.lx).toFixed(3),
-        computeVol(obj.lx, obj.ly).toFixed(3),
-        '1.0'
-      );
-      return;
+  // ── Draw BG + lights ───────────────────────────────────────────────────────
+  const draw = useCallback(() => {
+    const bgC=bgRef.current, ltC=ltRef.current;
+    if (!bgC||!ltC||!imgsLoaded) return;
+    try {
+      const bgX=bgC.getContext('2d'), ltX=ltC.getContext('2d');
+      bgX.imageSmoothingEnabled=false;
+      ltX.imageSmoothingEnabled=false;
+      bgX.clearRect(0,0,W,H);
+
+      // Depth sort draggable objects: painter's algorithm (back→front = low lx+ly → high lx+ly)
+      const draggables = OBJECTS_DEF
+        .filter(o=>placed[o.sprite]&&ANCHORS[o.sprite])
+        .map(o=>({ sprite:o.sprite, lx:placed[o.sprite].lx, ly:placed[o.sprite].ly }))
+        .sort((a,b)=>(a.lx+a.ly)-(b.lx+b.ly));
+
+      let drawnDraggables = false;
+
+      LAYER_ORDER.forEach(layer => {
+        // Inject depth-sorted draggables just before Avatar
+        if (layer.name==='Room - Avatar.png' && !drawnDraggables) {
+          drawnDraggables=true;
+          draggables.forEach(({ sprite, lx, ly }) => {
+            const img=imgs.current[sprite]; if (!img) return;
+            const a=ANCHORS[sprite];
+            const off=getDrawOffset(a,lx,ly,0);
+            bgX.drawImage(img,off.x,off.y,W,H);
+          });
+        }
+
+        const img=imgs.current[layer.name]; if (!img) return;
+
+        if (layer.name==='Room - Day sky.png') {
+          bgX.globalAlpha=1-dn; bgX.drawImage(img,0,0,W,H); bgX.globalAlpha=1; return;
+        }
+        if (layer.name==='Room - Night sky.png') {
+          bgX.globalAlpha=dn; bgX.drawImage(img,0,0,W,H); bgX.globalAlpha=1; return;
+        }
+        if (layer.type==='animated') {
+          const kfs=KEYFRAMES[layer.name]; if (!kfs) return;
+          const t=layer.name.includes('Sun')?(1-dn):dn;
+          const pos=interpKFs(kfs,t);
+          const a=ANCHORS[layer.name]; if (!a) return;
+          const off=getDrawOffset(a,pos.lx,pos.ly,pos.z);
+          const alpha=layer.name.includes('Sun')?Math.max(0,1-dn*3):Math.max(0,(dn-0.33)*3);
+          bgX.globalAlpha=alpha; bgX.drawImage(img,off.x,off.y,W,H); bgX.globalAlpha=1; return;
+        }
+        if (layer.name==='Room - Blinds.png') {
+          const pos=interpKFsLinear(KEYFRAMES['Room - Blinds.png'],blindsT);
+          const a=ANCHORS['Room - Blinds.png'];
+          const off=getDrawOffset(a,pos.lx,pos.ly,pos.z);
+          bgX.drawImage(img,off.x,off.y,W,H); return;
+        }
+        if (layer.name==='Room - Fairy lights - Bulb.png') return;
+        bgX.drawImage(img,0,0,W,H);
+      });
+
+      if (!drawnDraggables) {
+        draggables.forEach(({ sprite, lx, ly }) => {
+          const img=imgs.current[sprite]; if (!img) return;
+          const off=getDrawOffset(ANCHORS[sprite],lx,ly,0);
+          bgX.drawImage(img,off.x,off.y,W,H);
+        });
+      }
+
+      bgX.fillStyle=`rgba(4,10,24,${dn*0.3})`; bgX.fillRect(0,0,W,H);
+
+      // ── Lights ────────────────────────────────────────────────────────────
+      ltX.clearRect(0,0,W,H);
+      const lampAlpha=(lamp/100)*0.8;
+      if (lampAlpha>0.01) {
+        const { x:cx, y:cy }=LAMP_APEX;
+        const ha=(LAMP_ANGLE/2)*Math.PI/180;
+        ltX.save(); ltX.beginPath(); ltX.moveTo(cx,cy);
+        ltX.lineTo(cx-Math.sin(ha)*LAMP_REACH, cy+Math.cos(ha)*LAMP_REACH);
+        ltX.lineTo(cx+Math.sin(ha)*LAMP_REACH, cy+Math.cos(ha)*LAMP_REACH);
+        ltX.closePath(); ltX.clip();
+        const cg=ltX.createRadialGradient(cx,cy,0,cx,cy,LAMP_REACH);
+        cg.addColorStop(0,`rgba(255,220,120,${lampAlpha})`);
+        cg.addColorStop(0.5,`rgba(255,200,80,${lampAlpha*0.5})`);
+        cg.addColorStop(1,'rgba(255,180,50,0)');
+        ltX.fillStyle=cg; ltX.fillRect(0,0,W,H); ltX.restore();
+      }
+      FAIRY_BULBS.forEach(b => {
+        const rg=ltX.createRadialGradient(b.x,b.y,0,b.x,b.y,10);
+        rg.addColorStop(0,'rgba(255,240,180,0.65)');
+        rg.addColorStop(0.5,'rgba(255,220,120,0.26)');
+        rg.addColorStop(1,'rgba(255,200,80,0)');
+        ltX.fillStyle=rg; ltX.beginPath(); ltX.arc(b.x,b.y,10,0,Math.PI*2); ltX.fill();
+      });
+      const bulbImg=imgs.current['Room - Fairy lights - Bulb.png'];
+      if (bulbImg) ltX.drawImage(bulbImg,0,0,W,H);
+    } catch(err) { console.warn('[draw]',err); }
+  }, [imgsLoaded,placed,lamp,blindsT,dn]);
+
+  // ── Debug overlay — matches calibrate_v22's redrawOverlay + redrawGrid ─────
+  const drawDebug = useCallback(() => {
+    const ov=ovRef.current; if (!ov) return;
+    const ctx=ov.getContext('2d');
+    ctx.clearRect(0,0,W,H);
+    if (!debug) return;
+
+    // Floor grid
+    const steps=snapDiv;
+    ctx.lineWidth=0.5;
+    for (let i=0;i<=steps;i++) {
+      const t=i/steps;
+      const maj=i===0||i===steps||i===steps/2;
+      ctx.strokeStyle=maj?'rgba(232,200,74,.13)':'rgba(232,200,74,.04)';
+      const a=l2s(0,t), b=l2s(1,t), c=l2s(t,0), d=l2s(t,1);
+      ctx.beginPath(); ctx.moveTo(a.sx,a.sy); ctx.lineTo(b.sx,b.sy); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(c.sx,c.sy); ctx.lineTo(d.sx,d.sy); ctx.stroke();
     }
-    if (soundRole === 'harmony') {
-      osc.send('/soundroom/layer/harmony', '0.0', '0.18', '1.0');
-      return;
+
+    // Floor diamond outline
+    const {top:T,right:R,bot:B,left:L}=FLOOR;
+    ctx.beginPath(); ctx.moveTo(T.x,T.y); ctx.lineTo(R.x,R.y); ctx.lineTo(B.x,B.y); ctx.lineTo(L.x,L.y); ctx.closePath();
+    ctx.strokeStyle='rgba(232,200,74,.18)'; ctx.lineWidth=1.5; ctx.setLineDash([3,3]); ctx.stroke(); ctx.setLineDash([]);
+
+    // Floor corner dots
+    [[FLOOR.top,'#e84a4a','T'],[FLOOR.right,'#e8e84a','R'],[FLOOR.bot,'#4a4ae8','B'],[FLOOR.left,'#4ae880','L']].forEach(([p,c,l])=>{
+      ctx.beginPath(); ctx.arc(p.x,p.y,4,0,Math.PI*2); ctx.fillStyle=c; ctx.fill();
+      ctx.fillStyle='#000'; ctx.font='bold 7px monospace'; ctx.textAlign='center'; ctx.fillText(l,p.x,p.y+3);
+    });
+
+    // Snap grid dots
+    for (let xi=0;xi<=snapDiv;xi++) for (let yi=0;yi<=snapDiv;yi++) {
+      const s=l2s(xi/snapDiv,yi/snapDiv);
+      ctx.beginPath(); ctx.arc(s.sx,s.sy,2,0,Math.PI*2);
+      ctx.fillStyle='rgba(74,200,232,0.35)'; ctx.fill();
     }
-    osc.send(`/soundroom/layer/${soundRole}`, '0.0', '0.0', '0.0');
-  }, [osc]);
 
-  const sendAll = useCallback(() => {
-    for (const def of OBJECTS_DEF) {
-      if (!def.soundRole) continue;
-      const obj = placed.find((p) => p.soundRole === def.soundRole);
-      sendRoleState(def.soundRole, obj);
+    // Live cursor cell highlight
+    if (mouseLXY) {
+      const step=1/snapDiv;
+      const cl=Math.round(mouseLXY.lx/step)*step, cr=cl+step;
+      const ct=Math.round(mouseLXY.ly/step)*step, cb=ct+step;
+      const tl=l2s(cl,ct), tr2=l2s(cr,ct), br2=l2s(cr,cb), bl2=l2s(cl,cb);
+      ctx.beginPath(); ctx.moveTo(tl.sx,tl.sy); ctx.lineTo(tr2.sx,tr2.sy); ctx.lineTo(br2.sx,br2.sy); ctx.lineTo(bl2.sx,bl2.sy); ctx.closePath();
+      ctx.fillStyle='rgba(74,200,232,.13)'; ctx.fill();
+      ctx.strokeStyle='rgba(74,200,232,.4)'; ctx.lineWidth=1; ctx.stroke();
     }
-  }, [placed, sendRoleState]);
 
-  const pushSpeed = useCallback((items) => {
-    const coffee = items.find((p) => p.id === 'Coffee');
-    if (coffee) {
-      const nextSpeed = 0.9 + coffee.lx * 0.25; // 0.90 → 1.15, much more musical
-      setSpeed(+nextSpeed.toFixed(2));
-      osc.send('/soundroom/speed', nextSpeed.toFixed(3));
-      return;
-    }
-    setSpeed(1.0);
-    osc.send('/soundroom/speed', '1.0');
-  }, [osc]);
+    // Placed objects — footprints, cubes, labels (matching calibrate_v22)
+    Object.entries(placed).forEach(([sprite,pos]) => {
+      if (!pos) return;
+      const a=ANCHORS[sprite]; if (!a) return;
+      const isSel=sel===sprite;
+      const fp=a.fp;
+      const lx=pos.lx, ly=pos.ly, zPx=0;
+      const ap=l2s(lx,ly);
 
-  const handleStart=useCallback(()=>{
-    setShowLoad(false);
-    setStarted(true);
-    for (const { soundRole } of OBJECTS_DEF) {
-      if (!soundRole) continue;
-      osc.send(`/soundroom/layer/${soundRole}`, '0.0', '0.0', '0.0');
-    }
-    osc.send('/soundroom/layer/harmony', '0.0', '0.18', '1.0');
-    osc.send('/soundroom/time', '0.0');
-    osc.send('/soundroom/blinds', String(blinds));
-    osc.send('/soundroom/lamp', String(lamp));
-    osc.send('/soundroom/weather', '0.0');
-    osc.send('/soundroom/speed', '1.0');
-  },[osc,blinds,lamp]);
+      // Anchor dot
+      ctx.beginPath(); ctx.arc(ap.sx,ap.sy-zPx, isSel?5:3, 0,Math.PI*2);
+      ctx.fillStyle=isSel?'#e8c84a':'rgba(74,200,232,.5)'; ctx.fill();
 
-  useEffect(() => () => clearTransitionTimers(), [clearTransitionTimers]);
+      if (fp) {
+        const tw=fp.w/TILE_GRID, td=fp.d/TILE_GRID;
+        const lx0=lx-tw/2, ly0=ly-td/2;
 
-  useEffect(()=>{
-    if(!started) return;
-    if(isNight===prevIsNight.current) return;
-    prevIsNight.current=isNight;
+        // Footprint polygon
+        if (showFP||isSel) {
+          const corners=[[lx0,ly0],[lx0+tw,ly0],[lx0+tw,ly0+td],[lx0,ly0+td]].map(([x,y])=>{
+            const s=l2s(x,y); return {sx:s.sx,sy:s.sy-zPx};
+          });
+          ctx.beginPath(); ctx.moveTo(corners[0].sx,corners[0].sy);
+          corners.slice(1).forEach(c=>ctx.lineTo(c.sx,c.sy)); ctx.closePath();
+          ctx.fillStyle=isSel?'rgba(232,200,74,.12)':'rgba(74,200,232,.06)'; ctx.fill();
+          ctx.strokeStyle=isSel?'rgba(232,200,74,.8)':'rgba(74,200,232,.25)';
+          ctx.lineWidth=isSel?1.5:1; ctx.stroke();
+        }
 
-    clearTransitionTimers();
-    osc.send('/soundroom/time', isNight ? '100.0' : '0.0');
-
-    // Stage the resend so Max can crossfade before all layers are reasserted.
-    transitionTimers.current.push(
-      setTimeout(() => sendAll(), Math.round(CFMS * 0.3)),
-      setTimeout(() => sendAll(), CFMS + 150)
-    );
-  },[isNight,started,osc,sendAll,clearTransitionTimers]);
-
-  useEffect(()=>{ if(started) osc.send('/soundroom/blinds', String(blinds)); },[blinds,started,osc]);
-  useEffect(()=>{ if(started) osc.send('/soundroom/lamp', String(lamp)); },[lamp,started,osc]);
-  useEffect(()=>{ if(started) osc.send('/soundroom/weather', weather==='rain' ? '1.0' : '0.0'); },[weather,started,osc]);
-
-  useEffect(()=>{
-    if(!started) return;
-    sendAll();
-    pushSpeed(placed);
-  },[placed,started,sendAll,pushSpeed]);
-
-  useEffect(()=>{
-    if(!started || drag===null) return;
-    const o=placed[drag];
-    if(!o || !o.soundRole) return;
-    osc.send(
-      `/soundroom/layer/${o.soundRole}`,
-      computePan(o.lx).toFixed(3),
-      computeVol(o.lx,o.ly).toFixed(3),
-      '1.0'
-    );
-  },[placed,drag,started,osc]);
-
-  const bringToFront=useCallback((iid)=>{
-    setTouchOrder(prev=>[...prev.filter(x=>x!==iid), iid]);
-  },[]);
-
-  const onObjPD=useCallback((e,i)=>{
-    e.stopPropagation();e.preventDefault();
-    setSel(i);setDrag(i);
-    if(placed[i]) bringToFront(placed[i].iid);
-  },[placed,bringToFront]);
-
-  useEffect(()=>{
-    if(drag===null)return;
-    const onPM=(e)=>{
-      const r=roomRef.current.getBoundingClientRect();
-      const rw=r.width/RW,rh=r.height/RH;
-      const rx=(e.clientX-r.left)/rw,ry=(e.clientY-r.top)/rh;
-      const{lx,ly}=fromScreen(rx,ry);
-      setPlaced(p=>p.map((o,i)=>i===drag?{...o,lx,ly}:o));
-    };
-    const onPU=()=>setDrag(null);
-    window.addEventListener('pointermove',onPM);
-    window.addEventListener('pointerup',onPU);
-    return()=>{window.removeEventListener('pointermove',onPM);window.removeEventListener('pointerup',onPU);};
-  },[drag]);
-
-  const onTrayPD=useCallback((e,def)=>{
-    if(placed.some(p=>p.id===def.id))return;
-    e.preventDefault();e.stopPropagation();
-    trayDragRef.current=def;
-    setTrayDrag({def,x:e.clientX,y:e.clientY});
-    const m=(me)=>setTrayDrag(td=>td?{...td,x:me.clientX,y:me.clientY}:null);
-    const u=(ue)=>{
-      if(trayDragRef.current&&roomRef.current){
-        const r=roomRef.current.getBoundingClientRect();
-        const rx=ue.clientX-r.left,ry=ue.clientY-r.top;
-        if(rx>=0&&rx<=r.width&&ry>=0&&ry<=r.height){
-          const rw=r.width/RW,rh=r.height/RH;
-          if(!rw||!rh) return;
-          const{lx,ly}=fromScreen(rx/rw,ry/rh);
-          if(isNaN(lx)||isNaN(ly)) return;
-          const newObj = {
-            ...trayDragRef.current,
-            lx: clamp(lx, 0.05, 0.95),
-            ly: clamp(ly, 0.05, 0.95),
-            iid: `${trayDragRef.current.id}_${Date.now()}`,
-          };
-          setPlaced(prev=>[...prev, newObj]);
+        // Iso cube
+        if (showCubes) {
+          const ph=fp.h/TILE_GRID, alpha=isSel?.4:.1;
+          drawIsoCube(ctx, lx0,ly0,tw,td,ph,zPx,
+            `rgba(100,200,255,${alpha})`,`rgba(55,130,210,${alpha})`,`rgba(35,95,175,${alpha})`,
+            isSel?'rgba(100,200,255,.7)':'rgba(100,200,255,.13)');
         }
       }
-      trayDragRef.current=null;setTrayDrag(null);
-      window.removeEventListener('pointermove',m);window.removeEventListener('pointerup',u);
+
+      // Label
+      const label=sprite.replace(/^Room - /,'').replace(/\.png$/,'');
+      ctx.font='8px monospace'; ctx.textAlign='left';
+      ctx.fillStyle=isSel?'rgba(232,200,74,.9)':'rgba(74,200,232,.35)';
+      ctx.fillText(`${label} [${(pos.lx).toFixed(3)},${(pos.ly).toFixed(3)}]`, ap.sx+6, ap.sy-zPx-2);
+    });
+
+    // Cursor lx/ly readout
+    if (mouseLXY) {
+      ctx.font='9px monospace'; ctx.textAlign='left';
+      ctx.fillStyle='rgba(74,200,232,.8)';
+      ctx.fillText(`lx:${mouseLXY.lx.toFixed(3)} ly:${mouseLXY.ly.toFixed(3)}`, 6, H-6);
+    }
+  }, [debug, placed, sel, snapDiv, showFP, showCubes, mouseLXY]);
+
+  useEffect(() => { draw(); }, [draw]);
+  useEffect(() => { drawDebug(); }, [drawDebug]);
+
+  // ── Hit testing ────────────────────────────────────────────────────────────
+  const hitTest = useCallback((cx, cy) => {
+    const hits = OBJECTS_DEF
+      .filter(o=>placed[o.sprite]&&ANCHORS[o.sprite]&&CROP[o.sprite])
+      .map(o=>({ sprite:o.sprite, lx:placed[o.sprite].lx, ly:placed[o.sprite].ly }))
+      .sort((a,b)=>(b.lx+b.ly)-(a.lx+a.ly)); // front-first
+
+    for (const { sprite, lx, ly } of hits) {
+      const a=ANCHORS[sprite];
+      const off=getDrawOffset(a,lx,ly,0);
+      const c=CROP[sprite];
+      const localX=cx-off.x, localY=cy-off.y;
+      if (localX>=c.ox-4 && localX<=c.ox+c.w+4 && localY>=c.oy-4 && localY<=c.oy+c.h+4) return sprite;
+    }
+    return null;
+  }, [placed]);
+
+  const getCanvasXY = useCallback((e) => {
+    const rect=ovRef.current?.getBoundingClientRect();
+    if (!rect) return {cx:0,cy:0};
+    return {
+      cx: (e.clientX-rect.left)*(W/rect.width),
+      cy: (e.clientY-rect.top) *(H/rect.height),
     };
-    window.addEventListener('pointermove',m);window.addEventListener('pointerup',u);
-  },[placed]);
+  }, []);
 
-  const removeObj=(i)=>{setPlaced(p=>p.filter((_,j)=>j!==i));setSel(null);};
-  const resetAll=()=>{setPlaced([]);setSel(null);};
-  const randomise=()=>setPlaced([...OBJECTS_DEF].sort(()=>Math.random()-.5).map((o,i)=>({
-    ...o,lx:0.15+((i%3)/3)*.65+Math.random()*.08,
-    ly:0.15+(Math.floor(i/3)/3)*.65+Math.random()*.08,iid:Date.now()+i})));
+  const onPointerDown = useCallback((e) => {
+    e.preventDefault();
+    const { cx, cy }=getCanvasXY(e);
 
-  const sorted=useMemo(()=>[...placed].map((o,i)=>({o,i})).sort((a,b)=>(a.o.lx+a.o.ly)-(b.o.lx+b.o.ly)),[placed]);
-  const selObj=sel!==null?placed[sel]:null;
-  const avatarPos=getObjPos('Room - Avatar.png',0.5,0.72);
+    // Blinds tassel
+    const tasselY=217-blindsT*68;
+    if (cx>=478 && cx<=500 && Math.abs(cy-tasselY)<20) {
+      setBlindsDragging(true);
+      blindsDragStartY.current=cy;
+      blindsDragStartT.current=blindsT;
+      return;
+    }
 
+    const hit=hitTest(cx,cy);
+    setSel(hit);
+    if (hit) setDrag(hit);
+  }, [getCanvasXY, hitTest, blindsT]);
+
+  const onPointerMove = useCallback((e) => {
+    const { cx, cy }=getCanvasXY(e);
+
+    // Update live cursor for debug
+    if (debug) {
+      const raw=s2l(cx,cy);
+      setMouseLXY({ lx:raw.lx, ly:raw.ly });
+    }
+
+    if (blindsDragging) {
+      const dy=blindsDragStartY.current-cy;
+      setBlindsT(prev=>Math.max(0,Math.min(1,blindsDragStartT.current+dy/80)));
+      return;
+    }
+    if (!drag) return;
+
+    const raw=s2l(cx,cy);
+    const pos=snapAndClampDyn(raw.lx, raw.ly, drag);
+
+    // Collision check — only block if another object is already there
+    if (wouldOverlap(drag, pos.lx, pos.ly, placedRef.current)) {
+      setDropBlocked(true);
+      return; // keep old position
+    }
+    setDropBlocked(false);
+    setPlaced(prev => ({ ...prev, [drag]: pos }));
+  }, [drag, blindsDragging, getCanvasXY, snapAndClampDyn, debug]);
+
+  const onPointerUp = useCallback(() => {
+    setDrag(null);
+    setBlindsDragging(false);
+    setDropBlocked(false);
+  }, []);
+
+  const onPointerLeave = useCallback(() => {
+    setMouseLXY(null);
+    setDrag(null);
+    setBlindsDragging(false);
+    setDropBlocked(false);
+  }, []);
+
+  // ── Tray drag → drop ───────────────────────────────────────────────────────
+  const onTrayDown = useCallback((e, def) => {
+    if (placedRef.current[def.sprite]) return;
+    e.preventDefault(); e.stopPropagation();
+    trayDragRef.current=def;
+    setTrayDrag({ def, x:e.clientX, y:e.clientY });
+
+    const onMove=(me)=>setTrayDrag(td=>td?{...td,x:me.clientX,y:me.clientY}:null);
+    const onUp=(ue)=>{
+      const def2=trayDragRef.current;
+      if (def2) {
+        const rect=ovRef.current?.getBoundingClientRect();
+        if (rect) {
+          const cx=(ue.clientX-rect.left)*(W/rect.width);
+          const cy=(ue.clientY-rect.top) *(H/rect.height);
+          if (cx>=0&&cx<=W&&cy>=0&&cy<=H) {
+            const raw=s2l(cx,cy);
+            const pos=snapAndClamp(raw.lx, raw.ly, def2.sprite, snapDiv);
+            if (!isNaN(pos.lx)&&!isNaN(pos.ly)) {
+              // Collision check on drop
+              if (!wouldOverlap(def2.sprite, pos.lx, pos.ly, placedRef.current)) {
+                setPlaced(prev=>({...prev,[def2.sprite]:pos}));
+              } else {
+                // Flash blocked
+                setDropBlocked(true);
+                setTimeout(()=>setDropBlocked(false),400);
+              }
+            }
+          }
+        }
+      }
+      trayDragRef.current=null;
+      setTrayDrag(null);
+      window.removeEventListener('pointermove',onMove);
+      window.removeEventListener('pointerup',onUp);
+    };
+    window.addEventListener('pointermove',onMove);
+    window.addEventListener('pointerup',onUp);
+  }, []);
+
+  const removeObj = useCallback((sprite) => {
+    setPlaced(prev=>{ const n={...prev}; delete n[sprite]; return n; });
+    setSel(null);
+  }, []);
+
+  // ── OSC ───────────────────────────────────────────────────────────────────
+  const clearTimers=useCallback(()=>{ transTimers.current.forEach(clearTimeout); transTimers.current=[]; },[]);
+  useEffect(()=>()=>clearTimers(),[clearTimers]);
+
+  const sendRole=useCallback((soundRole,p)=>{
+    if (!soundRole) return;
+    if (p) osc.send(`/soundroom/layer/${soundRole}`,computePan(p.lx).toFixed(3),computeVol(p.lx,p.ly).toFixed(3),'1.0');
+    else if (soundRole==='harmony') osc.send('/soundroom/layer/harmony','0.0','0.18','1.0');
+    else osc.send(`/soundroom/layer/${soundRole}`,'0.0','0.0','0.0');
+  },[osc]);
+
+  const sendAll=useCallback(()=>{
+    OBJECTS_DEF.forEach(def=>{ if(def.soundRole) sendRole(def.soundRole,placed[def.sprite]); });
+  },[placed,sendRole]);
+
+  const pushSpeed=useCallback(()=>{
+    const p=placed['Room - Coffee.png'];
+    const s=p?0.9+p.lx*0.25:1.0;
+    setSpeed(+s.toFixed(2));
+    osc.send('/soundroom/speed',s.toFixed(3));
+  },[placed,osc]);
+
+  const handleStart=useCallback(()=>{
+    setShowLoad(false); setStarted(true);
+    OBJECTS_DEF.forEach(({soundRole})=>{ if(soundRole) osc.send(`/soundroom/layer/${soundRole}`,'0.0','0.0','0.0'); });
+    osc.send('/soundroom/layer/harmony','0.0','0.18','1.0');
+    osc.send('/soundroom/time','0.0'); osc.send('/soundroom/blinds','0.0');
+    osc.send('/soundroom/lamp','0'); osc.send('/soundroom/weather','0.0'); osc.send('/soundroom/speed','1.0');
+  },[osc]);
+
+  useEffect(()=>{
+    if (!started) return;
+    if (isNight===prevNight.current) return;
+    prevNight.current=isNight;
+    clearTimers();
+    osc.send('/soundroom/time',isNight?'100.0':'0.0');
+    transTimers.current.push(setTimeout(sendAll,Math.round(CFMS*0.3)),setTimeout(sendAll,CFMS+150));
+  },[isNight,started,osc,sendAll,clearTimers]);
+
+  useEffect(()=>{ if(started) osc.send('/soundroom/blinds',blindsT.toFixed(3)); },[blindsT,started,osc]);
+  useEffect(()=>{ if(started) osc.send('/soundroom/lamp',String(lamp)); },[lamp,started,osc]);
+  useEffect(()=>{ if(started) osc.send('/soundroom/weather',weather==='rain'?'1.0':'0.0'); },[weather,started,osc]);
+  useEffect(()=>{ if(started){ sendAll(); pushSpeed(); } },[placed,started,sendAll,pushSpeed]);
+
+  // ── Shuffle / Reset ────────────────────────────────────────────────────────
+  const doShuffle = useCallback(() => {
+    const count=1+Math.floor(Math.random()*OBJECTS_DEF.length);
+    const pool=[...OBJECTS_DEF].sort(()=>Math.random()-0.5).slice(0,count);
+    const step=1/snapDiv;
+    const allPos=[];
+    for (let xi=1;xi<snapDiv;xi++) for (let yi=1;yi<snapDiv;yi++)
+      allPos.push({ lx:+(xi*step).toFixed(4), ly:+(yi*step).toFixed(4) });
+    const shuffled=allPos.sort(()=>Math.random()-0.5);
+    const n={};
+    const used=new Set();
+    pool.forEach(o=>{
+      for (const pos of shuffled) {
+        const key=`${pos.lx},${pos.ly}`;
+        if (used.has(key)) continue;
+        if (wouldOverlap(o.sprite,pos.lx,pos.ly,n)) continue;
+        used.add(key);
+        const clamped=snapAndClamp(pos.lx, pos.ly, o.sprite, snapDiv);
+        n[o.sprite]=clamped;
+        break;
+      }
+    });
+    setPlaced(n); setSel(null);
+  },[snapDiv]);
+
+  // ── Colours ───────────────────────────────────────────────────────────────
   const isDark=isNight;
-  const pBg=isDark?'rgba(12,18,32,.93)':'rgba(40,20,5,.9)';
-  const pBdr=isDark?'rgba(60,100,180,.3)':'rgba(180,110,50,.35)';
-  const tCol=isDark?'#a0c0e0':'#c07840';
-  const dCol=isDark?'rgba(120,170,220,.5)':'rgba(160,90,40,.5)';
+  const pBg  = isDark?'rgba(12,18,32,.93)':'rgba(40,20,5,.9)';
+  const pBdr = isDark?'rgba(60,100,180,.3)':'rgba(180,110,50,.35)';
+  const tCol = isDark?'#a0c0e0':'#c07840';
+  const dCol = isDark?'rgba(120,170,220,.5)':'rgba(160,90,40,.5)';
   const pageBg=isDark
     ?'radial-gradient(ellipse at 50% 0%,#1a2a42 0%,#0a1220 60%,#050a14 100%)'
     :'radial-gradient(ellipse at 50% 0%,#e8d090 0%,#c09858 50%,#9a7438 100%)';
 
-  const toggleWeather = useCallback((e) => {
-    e?.stopPropagation?.();
-    setWeather((w) => (w === 'clear' ? 'rain' : 'clear'));
-  }, []);
+  const placedCount=Object.keys(placed).length;
+  const selDef=sel?OBJECTS_DEF.find(o=>o.sprite===sel):null;
 
-  const switchToNight = useCallback((e) => {
-    e?.stopPropagation?.();
-    if (!isNight) setDn(100);
-  }, [isNight]);
-
-  const switchToDay = useCallback((e) => {
-    e?.stopPropagation?.();
-    if (isNight) setDn(0);
-  }, [isNight]);
-
-  const sunX = S['Room - Sun.png'].ox + n * 44;
-  const sunY = S['Room - Sun.png'].oy + n * 54;
-  const moonX = S['Room - Moon.png'].ox - (1 - n) * 28;
-  const moonY = S['Room - Moon.png'].oy + (1 - n) * 42;
-
-  const sp=(name)=>`/sprites/${name}`;
-
-  if(showLoad) return(
-    <div style={{position:'fixed',inset:0,cursor:'pointer',
+  // ── Loading screen ────────────────────────────────────────────────────────
+  if (showLoad) return (
+    <div style={{ position:'fixed',inset:0,cursor:'pointer',
       background:'radial-gradient(ellipse at 50% 30%,#c87040 0%,#7a3418 60%,#320e02 100%)',
-      display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'1.4rem',
-      fontFamily:"'Courier New',monospace"}} onClick={handleStart}>
-      <div style={{fontSize:9,color:'rgba(255,210,150,.4)',letterSpacing:4}}>DESE-61003 · AUDIO EXPERIENCE DESIGN</div>
-      <div style={{fontSize:22,color:'#fff8f0',letterSpacing:5,fontWeight:'bold',textShadow:'2px 2px 0 rgba(80,30,0,.6)'}}>◈ SOUND ROOM ◈</div>
-      <div style={{width:200,height:8,background:'rgba(80,30,10,.35)',border:'2px solid rgba(200,120,50,.4)'}}>
-        <div style={{height:'100%',background:'linear-gradient(90deg,#c07030,#f0b050)',width:'100%'}}/>
+      display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',
+      gap:'1.4rem',fontFamily:"'Courier New',monospace" }} onClick={handleStart}>
+      <div style={{ fontSize:9,color:'rgba(255,210,150,.4)',letterSpacing:4 }}>DESE-61003 · AUDIO EXPERIENCE DESIGN</div>
+      <div style={{ fontSize:22,color:'#fff8f0',letterSpacing:5,fontWeight:'bold',textShadow:'2px 2px 0 rgba(80,30,0,.6)' }}>◈ SOUND ROOM ◈</div>
+      <div style={{ width:200,height:8,background:'rgba(80,30,10,.35)',border:'2px solid rgba(200,120,50,.4)' }}>
+        <div style={{ height:'100%',background:'linear-gradient(90deg,#c07030,#f0b050)',width:'100%' }}/>
       </div>
-      <div style={{fontSize:11,color:'rgba(255,210,150,.5)',letterSpacing:2}}>click to enter</div>
-      <div style={{fontSize:8,color:'rgba(200,140,90,.2)',marginTop:16,textAlign:'center',lineHeight:2}}>
-        Imperial College London · Dyson School of Design Engineering
-      </div>
+      <div style={{ fontSize:11,color:'rgba(255,210,150,.5)',letterSpacing:2 }}>click to enter</div>
     </div>
   );
 
-  return(
-    <div style={{width:'100%',minHeight:'100vh',display:'flex',flexDirection:'column',
-      alignItems:'center',justifyContent:'center',background:pageBg,transition:'background 1.5s',
-      fontFamily:"'Courier New',monospace",padding:16,boxSizing:'border-box',gap:8}}>
+  // ── Main UI ───────────────────────────────────────────────────────────────
+  return (
+    <div style={{ width:'100%',minHeight:'100vh',display:'flex',background:pageBg,
+      transition:'background 1.5s',fontFamily:"'Courier New',monospace",boxSizing:'border-box' }}>
 
-      <div style={{width:RW+140,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
-        <div style={{fontSize:10,color:dCol,letterSpacing:3}}>
-          ◈ SOUND ROOM ·{' '}
-          <span style={{color:isDark?'#80b8e0':'#d47830',transition:'color 1s'}}>{isDark?'NIGHT':'DAY'}</span>
-        </div>
-        <div style={{display:'flex',alignItems:'center',gap:6}}>
-          {[[toggleWeather,weather==='rain'?'🌧 rain':'☀ clear'],
-            [randomise,'shuffle'],[resetAll,'reset']].map(([fn,label],i)=>(
-            <div key={i} onClick={fn} style={{padding:'3px 10px',cursor:'pointer',fontSize:9,
-              color:tCol,background:pBg,border:`1px solid ${pBdr}`,borderRadius:4}}>{label}</div>
-          ))}
-          <div style={{fontSize:9,color:dCol}}>{placed.length}/{OBJECTS_DEF.length}</div>
-        </div>
-      </div>
-
-      <div style={{display:'flex',gap:8,alignItems:'center'}}>
-        <div style={{background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,
-          padding:'8px 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
-          <Dial value={lamp} onChange={setLamp} label="LAMP" size={52} color={isDark?'#80b8e0':'#d4a840'}/>
-        </div>
-
-        <div ref={roomRef} onClick={()=>setSel(null)}
-          style={{position:'relative',width:RW,height:RH,overflow:'hidden',flexShrink:0,
-            borderRadius:3,imageRendering:'pixelated',cursor:'default',
-            border:`2px solid ${isDark?'rgba(40,70,120,.5)':'rgba(140,70,20,.4)'}`,
-            boxShadow:`0 8px 48px ${isDark?'rgba(4,10,22,.9)':'rgba(80,40,8,.4)'}`}}>
-
-          <img src={sp('Room - Room.png')} alt="" draggable={false}
-            style={{position:'absolute',top:0,left:0,width:RW,height:RH,imageRendering:'pixelated',pointerEvents:'none'}}/>
-
-          {[['Room - Day.png',Math.max(0,1-n*1.5)],['Room - Night.png',Math.max(0,n*1.5-.3)]].map(([src,op])=>{
-            const s=S[src]; return(
-            <img key={src} src={sp(src)} alt="" draggable={false}
-              style={{position:'absolute',left:s.ox,top:s.oy,width:s.w,height:s.h,
-                imageRendering:'pixelated',pointerEvents:'none',
-                opacity:Math.min(1,op),transition:'opacity 1.5s'}}/>
-          );})}
-
-          {[['Room - Sun.png',Math.max(0,1-n*4)],['Room - Moon.png',Math.max(0,n*4-3)]].map(([src,op])=>{
-            const s=S[src]; return(
-            <img key={src} src={sp(src)} alt="" draggable={false}
-              style={{position:'absolute',left:s.ox,top:s.oy,width:s.w,height:s.h,
-                imageRendering:'pixelated',pointerEvents:'none',
-                opacity:Math.min(1,op),transition:'opacity 1.5s'}}/>
-          );})}
-
-          {(()=>{ const s=S['Room - Window.png']; return(
-            <img src={sp('Room - Window.png')} alt="" draggable={false}
-              onClick={e=>{e.stopPropagation();setDn(isNight?0:100);}}
-              style={{position:'absolute',left:s.ox,top:s.oy,width:s.w,height:s.h,
-                imageRendering:'pixelated',cursor:'pointer',pointerEvents:'all',zIndex:2}}/>
-          );})()}
-
-          <div style={{
-            position:'absolute',
-            left: S['Room - Blinds.png'].ox,
-            top:  S['Room - Window.png'].oy + 4,
-            width: S['Room - Blinds.png'].w,
-            height: S['Room - Window.png'].h - 4,
-            overflow:'hidden',
-            zIndex:3, pointerEvents:'none',
-          }}>
-            <img src={sp('Room - Blinds.png')} alt="" draggable={false}
-              style={{
-                position:'absolute',
-                left:0,
-                top: blindSlideY - (S['Room - Window.png'].oy + 4 - S['Room - Blinds.png'].oy),
-                width: S['Room - Blinds.png'].w,
-                height: S['Room - Blinds.png'].h,
-                imageRendering:'pixelated',
-                transition:'top .35s ease',
-              }}/>
-          </div>
-
-          <div style={{position:'absolute',pointerEvents:'none',zIndex:4,
-            left:256-lampRadius*2,top:20,
-            width:lampRadius*4,height:lampRadius*3,
-            background:`radial-gradient(ellipse at 50% 15%,rgba(255,230,100,${lampAlpha}) 0%,rgba(255,200,60,${lampAlpha*.5}) 35%,transparent 70%)`,
-            transition:'all .4s',mixBlendMode:'screen'}}/>
-
-          <img src={sp('Room - Avatar.png')} alt="avatar" draggable={false}
-            style={{position:'absolute',
-              left:avatarPos.left,top:avatarPos.top,
-              width:avatarPos.width,height:avatarPos.height,
-              imageRendering:'pixelated',pointerEvents:'none',
-              zIndex:8
-            }}/>
-
-          {sorted.map(({o,i})=>{
-            if(!S[o.sprite]) return null;
-            const pos=getObjPos(o.sprite,o.lx,o.ly);
-            const iSel=sel===i,isDrag=drag===i;
-            return(
-              <img key={o.iid} src={sp(o.sprite)} alt={o.name} draggable={false}
-                onPointerDown={e=>onObjPD(e,i)}
-                onClick={e=>{e.stopPropagation();setSel(i);}}
-                style={{position:'absolute',
-                  left:pos.left,top:pos.top,
-                  width:pos.width,height:pos.height,
-                  imageRendering:'pixelated',
-                  cursor:isDrag?'grabbing':'grab',
-                  filter:iSel
-                    ?'drop-shadow(0 0 4px rgba(255,220,60,1)) drop-shadow(0 0 8px rgba(255,200,40,.7))'
-                    :'drop-shadow(1px 3px 2px rgba(0,0,0,.3))',
-                  transition:isDrag?'none':'filter .15s',
-                  zIndex:10+touchOrder.indexOf(o.iid),
-                  opacity:1,
-                }}/>
-            );
-          })}
-
-          {(()=>{ const s=S['Room - Lamp.png']; return(
-            <img src={sp('Room - Lamp.png')} alt="" draggable={false}
-              style={{position:'absolute',left:s.ox,top:s.oy,width:s.w,height:s.h,
-                imageRendering:'pixelated',pointerEvents:'none',zIndex:250}}/>
-          );})()}
-
-          <div style={{position:'absolute',inset:0,pointerEvents:'none',zIndex:260,
-            background:`rgba(4,10,24,${n*.3})`,transition:'background 1.5s'}}/>
-
-          {selObj&&(
-            <div onClick={e=>e.stopPropagation()}
-              style={{position:'absolute',bottom:10,left:10,zIndex:300,
-                background:pBg,border:`1px solid ${pBdr}`,borderRadius:4,padding:'8px 12px'}}>
-              <div style={{color:tCol,fontSize:11,marginBottom:2,letterSpacing:1}}>{selObj.name}</div>
-              <div style={{color:dCol,fontSize:8,marginBottom:6}}>
-                {selObj.isSpeed ? `⚡ speed: ${speed}x (drag left=slow, right=fast)` : `${selObj.soundRole} · drag to move`}
-              </div>
-              <button onClick={()=>removeObj(sel)}
-                style={{padding:'3px 10px',background:'rgba(160,50,30,.15)',
-                  border:'1px solid rgba(180,70,40,.35)',color:'#d08870',
-                  fontSize:9,cursor:'pointer',fontFamily:'inherit',borderRadius:3}}>remove</button>
-            </div>
-          )}
-          <div style={{position:'absolute',top:7,right:7,zIndex:300,
-            fontSize:8,color:dCol,pointerEvents:'none'}}>{placed.length}/{OBJECTS_DEF.length}</div>
-        </div>
-
-        <div style={{background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,
-          padding:'8px 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:5}}>
-          <div style={{fontSize:7,color:dCol,letterSpacing:1}}>BLINDS</div>
-          <input type="range" min={0} max={100} value={blinds}
-            onChange={e=>setBlinds(+e.target.value)}
-            style={{writingMode:'vertical-lr',direction:'rtl',height:80,width:18,
-              accentColor:isDark?'#80b0e0':'#d07830'}}/>
-          <div style={{fontSize:7,color:dCol}}>{blinds}%</div>
-          <div style={{fontSize:18,cursor:'pointer',marginTop:2,lineHeight:1}}
-            title="toggle rain"
-            onClick={toggleWeather}>
-            {weather==='rain'?'🌧':'☀️'}
-          </div>
-        </div>
-      </div>
-
-      <div style={{background:pBg,border:`1px solid ${pBdr}`,borderRadius:4,width:RW+140,
-        display:'flex',gap:5,flexWrap:'wrap',alignItems:'center',padding:'8px 12px'}}>
-        <div style={{fontSize:8,color:dCol,letterSpacing:2,marginRight:5}}>OBJECTS</div>
-        {OBJECTS_DEF.map(def=>{
-          const done=placed.some(p=>p.id===def.id);
-          const hov=hovTray===def.id&&!done;
-          return(
-            <div key={def.id}
-              onMouseEnter={()=>setHovTray(def.id)} onMouseLeave={()=>setHovTray(null)}
-              onPointerDown={e=>onTrayPD(e,def)}
-              title={`${def.name} — ${def.soundRole} · drag into room`}
-              style={{position:'relative',width:60,height:48,
-                display:'flex',alignItems:'center',justifyContent:'center',
-                background:done?'rgba(60,30,10,.04)':hov?`rgba(${isDark?'60,100,160':'180,100,40'},.18)`:'rgba(60,30,10,.08)',
-                border:`1px solid rgba(${isDark?'80,130,200':'160,90,40'},${done?.04:hov?.4:.14})`,
-                borderRadius:4,cursor:done?'default':hov?'grab':'pointer',
-                opacity:done?.25:1,transition:'all .15s',
-                boxShadow:hov?`0 0 10px rgba(${isDark?'60,120,220':'200,130,50'},.3)`:'none'}}>
-              <img src={sp(def.sprite)} alt={def.name} draggable={false}
-                style={{maxWidth:56,maxHeight:44,imageRendering:'pixelated',objectFit:'contain',pointerEvents:'none'}}/>
-              {done&&<div style={{position:'absolute',inset:0,display:'flex',
-                alignItems:'center',justifyContent:'center',fontSize:14,
-                color:`rgba(${isDark?'100,160,220':'160,90,40'},.45)`}}>✓</div>}
-              <div style={{position:'absolute',bottom:0,left:0,right:0,textAlign:'center',
-                fontSize:5,color:'rgba(255,255,255,.55)',background:'rgba(0,0,0,.4)',
-                padding:'1px 0',letterSpacing:.4}}>{def.name}</div>
-            </div>
-          );
-        })}
-      </div>
-
-      {trayDrag&&(
-        <div style={{position:'fixed',left:trayDrag.x-30,top:trayDrag.y-24,
-          width:60,height:48,display:'flex',alignItems:'center',justifyContent:'center',
-          zIndex:9999,pointerEvents:'none',
-          filter:'drop-shadow(0 4px 12px rgba(0,0,0,.7)) drop-shadow(0 0 8px rgba(255,190,60,.6))',
-          opacity:.92}}>
-          <img src={sp(trayDrag.def.sprite)} alt="" draggable={false}
-            style={{maxWidth:56,maxHeight:44,imageRendering:'pixelated',objectFit:'contain'}}/>
-        </div>
+      {/* ── Debug sidebar ───────────────────────────────────────────────── */}
+      {debug && (
+        <DebugPanel
+          floor={FLOOR}
+          snapDiv={snapDiv}
+          onSnapDivChange={setSnapDiv}
+          placed={placed}
+          sel={sel}
+          setSel={setSel}
+          anchors={ANCHORS}
+          showFP={showFP}
+          setShowFP={setShowFP}
+          showCubes={showCubes}
+          setShowCubes={setShowCubes}
+          objects={OBJECTS_DEF}
+        />
       )}
 
-      <div style={{fontSize:7,color:dCol,opacity:.35,letterSpacing:2}}>
-        DESE-61003 · Imperial College London · Dyson School
+      {/* ── Main content ───────────────────────────────────────────────── */}
+      <div style={{ flex:1, display:'flex',flexDirection:'column',alignItems:'center',
+        justifyContent:'center',padding:16,gap:8 }}>
+
+        {/* Top bar */}
+        <div style={{ width:W+140,display:'flex',justifyContent:'space-between',alignItems:'center' }}>
+          <div style={{ fontSize:10,color:dCol,letterSpacing:3 }}>
+            ◈ SOUND ROOM · <span style={{ color:isDark?'#80b8e0':'#d47830',transition:'color 1s' }}>{isDark?'NIGHT':'DAY'}</span>
+          </div>
+          <div style={{ display:'flex',alignItems:'center',gap:6 }}>
+            {[
+              [()=>setWeather(w=>w==='rain'?'clear':'rain'), weather==='rain'?'🌧 rain':'☀ clear'],
+              [()=>setDn(d=>d<0.5?1:0), isDark?'☀ day':'🌙 night'],
+              [doShuffle, 'shuffle'],
+              [()=>{ setPlaced({}); setSel(null); }, 'reset'],
+              [()=>setDebug(d=>!d), debug?'◉ debug':'○ debug'],
+            ].map(([fn,label],i)=>(
+              <div key={i} onClick={fn} style={{ padding:'3px 10px',cursor:'pointer',fontSize:9,
+                color:label.includes('debug')&&debug?'#4ac8e8':tCol,
+                background:label.includes('debug')&&debug?'rgba(10,40,80,.4)':pBg,
+                border:`1px solid ${label.includes('debug')&&debug?'rgba(74,200,232,.5)':pBdr}`,
+                borderRadius:4 }}>{label}</div>
+            ))}
+            <div style={{ fontSize:9,color:dCol }}>{placedCount}/{OBJECTS_DEF.length}</div>
+          </div>
+        </div>
+
+        {/* Room row */}
+        <div style={{ display:'flex',gap:8,alignItems:'flex-start' }}>
+          {/* Lamp dial */}
+          <div style={{ background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,
+            padding:'8px 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:2 }}>
+            <Dial value={lamp} onChange={setLamp} label="LAMP" size={52} color={isDark?'#80b8e0':'#d4a840'}/>
+          </div>
+
+          {/* Canvas stack */}
+          <div style={{ position:'relative',width:W,height:H,flexShrink:0,
+            border:`2px solid ${dropBlocked?'rgba(220,60,40,.8)':isDark?'rgba(40,70,120,.5)':'rgba(140,70,20,.4)'}`,
+            borderRadius:3,transition:'border-color .15s',
+            boxShadow:`0 8px 48px ${isDark?'rgba(4,10,22,.9)':'rgba(80,40,8,.4)'}` }}>
+
+            <canvas ref={bgRef} width={W} height={H}
+              style={{ position:'absolute',top:0,left:0,imageRendering:'pixelated' }}/>
+            <canvas ref={ltRef} width={W} height={H}
+              style={{ position:'absolute',top:0,left:0,imageRendering:'pixelated',mixBlendMode:'screen',pointerEvents:'none' }}/>
+            <canvas ref={ovRef} width={W} height={H}
+              style={{ position:'absolute',top:0,left:0,cursor:drag||blindsDragging?'grabbing':debug?'crosshair':'default' }}
+              onPointerDown={onPointerDown}
+              onPointerMove={onPointerMove}
+              onPointerUp={onPointerUp}
+              onPointerLeave={onPointerLeave}/>
+
+            {/* Drop-blocked flash */}
+            {dropBlocked && (
+              <div style={{ position:'absolute',inset:0,pointerEvents:'none',
+                border:'3px solid rgba(220,60,40,.6)',borderRadius:2,
+                boxShadow:'inset 0 0 40px rgba(220,60,40,.2)' }}/>
+            )}
+
+            {/* Selected object info */}
+            {sel && selDef && (
+              <div style={{ position:'absolute',bottom:10,left:10,zIndex:10,
+                background:pBg,border:`1px solid ${pBdr}`,borderRadius:4,padding:'8px 12px' }}
+                onPointerDown={e=>e.stopPropagation()}>
+                <div style={{ color:tCol,fontSize:11,marginBottom:2,letterSpacing:1 }}>{selDef.name}</div>
+                <div style={{ color:dCol,fontSize:8,marginBottom:6 }}>
+                  {selDef.isSpeed?`⚡ speed: ${speed}x`:`${selDef.soundRole??'no sound'} · drag to move`}
+                </div>
+                <button onClick={()=>removeObj(sel)}
+                  style={{ padding:'3px 10px',background:'rgba(160,50,30,.15)',
+                    border:'1px solid rgba(180,70,40,.35)',color:'#d08870',
+                    fontSize:9,cursor:'pointer',fontFamily:'inherit',borderRadius:3 }}>remove</button>
+              </div>
+            )}
+            <div style={{ position:'absolute',top:7,right:7,fontSize:8,color:dCol,pointerEvents:'none' }}>
+              {placedCount}/{OBJECTS_DEF.length}
+            </div>
+          </div>
+
+          {/* Blinds slider */}
+          <div style={{ background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,
+            padding:'8px 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:5 }}>
+            <div style={{ fontSize:7,color:dCol,letterSpacing:1 }}>BLINDS</div>
+            <input type="range" min={0} max={1} step={0.01} value={blindsT}
+              onChange={e=>setBlindsT(+e.target.value)}
+              style={{ writingMode:'vertical-lr',direction:'rtl',height:80,width:18,
+                accentColor:isDark?'#80b0e0':'#d07830' }}/>
+            <div style={{ fontSize:7,color:dCol }}>{Math.round(blindsT*100)}%</div>
+            <div style={{ fontSize:6,color:dCol,textAlign:'center',maxWidth:50,lineHeight:1.3,opacity:.7 }}>drag tassel</div>
+            <div style={{ fontSize:18,cursor:'pointer',lineHeight:1 }}
+              onClick={()=>setWeather(w=>w==='rain'?'clear':'rain')}>
+              {weather==='rain'?'🌧':'☀️'}
+            </div>
+          </div>
+        </div>
+
+        {/* Object tray — Unpacking style */}
+        <div style={{ background:pBg,border:`1px solid ${pBdr}`,borderRadius:4,
+          width:W+140,display:'flex',flexWrap:'wrap',gap:6,
+          alignItems:'flex-end',padding:'10px 12px' }}>
+          <div style={{ fontSize:8,color:dCol,letterSpacing:2,marginRight:4,alignSelf:'center' }}>OBJECTS</div>
+          {OBJECTS_DEF.map(def => {
+            const isPlaced=!!placed[def.sprite];
+            const isHov=hovTray===def.id&&!isPlaced;
+            const imgEl=imgs.current[def.sprite];
+            return (
+              <div key={def.id}
+                onMouseEnter={()=>setHovTray(def.id)}
+                onMouseLeave={()=>setHovTray(null)}
+                onPointerDown={e=>onTrayDown(e,def)}
+                title={isPlaced?`${def.name} · placed (click in room to select)`:`${def.name} · drag into room`}
+                style={{ position:'relative',display:'flex',flexDirection:'column',
+                  alignItems:'center',justifyContent:'flex-end',gap:3,padding:'6px 6px 3px',
+                  background:isPlaced?'rgba(60,30,10,.04)':isHov?`rgba(${isDark?'60,100,160':'180,100,40'},.2)`:'rgba(60,30,10,.08)',
+                  border:`1px solid rgba(${isDark?'80,130,200':'160,90,40'},${isPlaced?.04:isHov?.45:.14})`,
+                  borderRadius:5,cursor:isPlaced?'default':isHov?'grab':'pointer',
+                  opacity:isPlaced?.3:1,transition:'all .15s',
+                  boxShadow:isHov?`0 0 10px rgba(${isDark?'60,120,220':'200,130,50'},.3)`:'none',
+                  minWidth:64 }}>
+                {imgEl && <Thumbnail src={imgEl.src} sprite={def.sprite} maxW={72} maxH={54}/>}
+                {isPlaced && (
+                  <div style={{ position:'absolute',inset:0,display:'flex',alignItems:'center',
+                    justifyContent:'center',fontSize:16,color:`rgba(${isDark?'100,160,220':'160,90,40'},.5)` }}>✓</div>
+                )}
+                <div style={{ fontSize:6,color:'rgba(255,255,255,.6)',background:'rgba(0,0,0,.4)',
+                  padding:'1px 4px',letterSpacing:.4,maxWidth:72,textAlign:'center',
+                  whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',borderRadius:2 }}>
+                  {def.name}
+                </div>
+              </div>
+            );
+          })}
+        </div>
+
+        <div style={{ fontSize:7,color:dCol,opacity:.35,letterSpacing:2 }}>
+          DESE-61003 · Imperial College London · Dyson School
+        </div>
       </div>
+
+      {/* Drag ghost */}
+      {trayDrag && (
+        <div style={{ position:'fixed',left:trayDrag.x-40,top:trayDrag.y-30,
+          zIndex:9999,pointerEvents:'none',opacity:.85,
+          filter:'drop-shadow(0 4px 12px rgba(0,0,0,.7)) drop-shadow(0 0 8px rgba(255,190,60,.6))' }}>
+          {imgs.current[trayDrag.def.sprite] && (
+            <Thumbnail src={imgs.current[trayDrag.def.sprite].src}
+              sprite={trayDrag.def.sprite} maxW={72} maxH={54}/>
+          )}
+        </div>
+      )}
     </div>
   );
 }

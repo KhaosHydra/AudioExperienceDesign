@@ -165,11 +165,17 @@ input:checked+.ts:before{transform:translateX(14px);background:#fff}
 </div>
 <div style="display:flex;gap:5px;align-items:center;margin-top:4px">
   <span style="font-size:8px;color:var(--dim)">Div:</span>
-  <input type="range" id="snapDiv" min="8" max="128" value="16" step="8" style="flex:1"
-    oninput="snapDivisions=+this.value;document.getElementById('snapLbl').textContent=this.value;redrawGrid()">
-  <span id="snapLbl" style="font-size:9px;color:var(--blue);min-width:28px">16</span>
+  <input type="range" id="snapDiv" min="4" max="64" value="8" step="4" style="flex:1"
+    oninput="snapDivisions=+this.value;
+      const floorW=Math.round(Math.hypot(FLOOR.right.x-FLOOR.left.x,FLOOR.right.y-FLOOR.left.y));
+      const snapPx=Math.round(floorW/snapDivisions);
+      document.getElementById('snapLbl').textContent=snapPx+'px';
+      document.getElementById('snapDiv2').textContent='(÷'+snapDivisions+')';
+      redrawGrid();updOutput();">
+  <span id="snapLbl" style="font-size:9px;color:var(--blue);min-width:36px">61px</span>
+  <span id="snapDiv2" style="font-size:7px;color:var(--dim)">(÷8)</span>
 </div>
-<p style="font-size:7px;color:var(--dim);margin-top:2px">8=tile · 16=½ · 32=¼ · 64=4px</p>
+<p style="font-size:7px;color:var(--dim);margin-top:2px">÷4≈122px · ÷8≈61px · ÷16≈30px · ÷32≈15px</p>
 </div>
 
 <div class="sec"><h3>Objects</h3>
@@ -450,7 +456,7 @@ const TCLASS={bg:'t-bg',room:'t-room',static:'t-static',light:'t-light',
 // STATE
 // ═══════════════════════════════════════════════════════════════
 let mode='place';
-let snapEnabled=true, snapDivisions=16;
+let snapEnabled=true, snapDivisions=8;  // ÷8 ≈ 61px grid
 let showFP=true, showCubes=true, showLights=false;
 let layers=[], placed={}, selObj=null;
 // keyframes[name] = [{t, lx, ly, z}] — full 3D per frame, keyed by object name
@@ -1505,10 +1511,36 @@ function updOutput(){
   const roomHLine=roomBox.heightPx
     ?`// Room height: ${roomBox.heightPx}px = ${(roomBox.heightPx/TILE_H_PX).toFixed(1)} tiles`
     :'// Room height: not yet defined (use Mode 3 · Draw Room Box)';
-  let o=`// ── DRAWING ─────────────────────────────────────────
+  // Compute snap pixel approximation for the output comment
+  const floorWidthPx = Math.round(Math.hypot(FLOOR.right.x-FLOOR.left.x, FLOOR.right.y-FLOOR.left.y));
+  const snapPxApprox = Math.round(floorWidthPx / snapDivisions);
+
+  let o=`// ── CONFIG ──────────────────────────────────────────
+// Canvas: 512×384px · all sprites are full 512×384 canvas exports
+// Draw formula: ctx.drawImage(img, screen.sx - nf.x + ao.x, screen.sy - nf.y + ao.y - z*16, 512, 384)
 ${roomHLine}
-// ctx.drawImage(img, target.sx - naturalFoot.x, target.sy - naturalFoot.y - z*${TILE_H_PX}, 512, 384)
-// z = height in tiles · ${TILE_H_PX}px per tile = shifts image upward on screen\n\n`;
+// Grid: ${TILE_GRID}×${TILE_GRID} tiles · tile size = ${TILE_H_PX}px (height) per tile
+// Snap grid: ~${snapPxApprox}px (divisions=${snapDivisions}, step=1/${snapDivisions}=${(1/snapDivisions).toFixed(4)} lx/ly)
+
+// ── FLOOR CORNERS (re-calibrate with Mode 3 if room changes) ────
+const FLOOR = {
+  top:   {x:${FLOOR.top.x},   y:${FLOOR.top.y}},
+  right: {x:${FLOOR.right.x}, y:${FLOOR.right.y}},
+  bot:   {x:${FLOOR.bot.x},   y:${FLOOR.bot.y}},
+  left:  {x:${FLOOR.left.x},  y:${FLOOR.left.y}},
+};
+const TILE_H_PX     = ${TILE_H_PX};  // px shift per z-tile
+const TILE_GRID     = ${TILE_GRID};  // floor is TILE_GRID × TILE_GRID tiles
+const SNAP_DIVISIONS = ${snapDivisions}; // snap step = 1/SNAP_DIVISIONS in lx/ly (≈${snapPxApprox}px)
+
+// ── LIGHT POSITIONS ──────────────────────────────────
+const LAMP_APEX   = {x:${LAMP_APEX.x}, y:${LAMP_APEX.y}};
+const LAMP_ANGLE  = 90;   // cone spread degrees
+const LAMP_REACH  = 120;  // px
+const FAIRY_BULBS = ${JSON.stringify(FAIRY_BULBS)};
+
+// ── DRAWING ──────────────────────────────────────────
+`;
   if(layers.length){
     const rows=layers.map((l,i)=>`  /*${i}*/{name:'${l.name}',visible:${l.visible},type:'${l.type}'}`).join(',\n');
     o+=`const LAYERS=[\n${rows}\n];\n\n`;

@@ -1,0 +1,91 @@
+// ── DRAWING ─────────────────────────────────────────
+// Room height: 129px = 8.1 tiles
+// ctx.drawImage(img, target.sx - naturalFoot.x, target.sy - naturalFoot.y - z*16, 512, 384)
+// z = height in tiles · 16px per tile = shifts image upward on screen
+
+const LAYERS=[
+  /*0*/{name:'Room - Background.png',visible:true,type:'bg'},
+  /*1*/{name:'Room - Floor.png',visible:true,type:'room'},
+  /*2*/{name:'Room - Left Wall.png',visible:true,type:'room'},
+  /*3*/{name:'Room - Fairy lights - String.png',visible:true,type:'static'},
+  /*4*/{name:'Room - Fairy lights - Bulb.png',visible:true,type:'light'},
+  /*5*/{name:'Room - Right Wall.png',visible:true,type:'room'},
+  /*6*/{name:'Room - Day sky.png',visible:true,type:'bg'},
+  /*7*/{name:'Room - Sun.png',visible:true,type:'animated'},
+  /*8*/{name:'Room - Night sky.png',visible:true,type:'bg'},
+  /*9*/{name:'Room - Moon.png',visible:true,type:'animated'},
+  /*10*/{name:'Room-floor cover.png',visible:true,type:'room'},
+  /*11*/{name:'Room - Window.png',visible:true,type:'static'},
+  /*12*/{name:'Room - Blinds.png',visible:true,type:'interactive'},
+  /*13*/{name:'Room - Bed.png',visible:true,type:'draggable'},
+  /*14*/{name:'Room - Bookshelf.png',visible:true,type:'draggable'},
+  /*15*/{name:'Room - Table.png',visible:true,type:'draggable'},
+  /*16*/{name:'Room - Coffee.png',visible:true,type:'draggable'},
+  /*17*/{name:'Room - Duck teddy.png',visible:true,type:'draggable'},
+  /*18*/{name:'Room - Frog Teddy.png',visible:true,type:'draggable'},
+  /*19*/{name:'Room - Laptop.png',visible:true,type:'draggable'},
+  /*20*/{name:'Room - Plant oval base.png',visible:true,type:'draggable'},
+  /*21*/{name:'Room - Plant.png',visible:true,type:'draggable'},
+  /*22*/{name:'Room - Speakers.png',visible:true,type:'draggable'},
+  /*23*/{name:'Room - Cat.png',visible:true,type:'draggable'},
+  /*24*/{name:'Room - Vinyl Player.png',visible:true,type:'draggable'},
+  /*25*/{name:'Room - Lamp.png',visible:true,type:'light'},
+  /*26*/{name:'Room - Avatar.png',visible:true,type:'character'},
+  /*27*/{name:'Room - blinds cover.png',visible:true,type:'static'}
+];
+
+const ANCHORS={
+  'Room - Bookshelf.png':{lx:0.0625,ly:0.7813,tx:1,ty:6,z:0,fp:{w:1,d:3.5,h:5.25},naturalFoot:{x:79,y:268},anchorOffset:{x:-1.5,y:33.5}},
+  'Room - Cat.png':{lx:0.1875,ly:0.1094,tx:2,ty:1,z:0,fp:{w:1,d:1,h:0.75},naturalFoot:{x:277,y:160},anchorOffset:{x:0,y:7.5}},
+  'Room - Coffee.png':{lx:0.6563,ly:0.7188,tx:5,ty:6,z:0,fp:{w:0.5,d:0.5,h:0.75},naturalFoot:{x:239,y:306},anchorOffset:{x:0,y:0}},
+  'Room - Duck teddy.png':{lx:0.1875,ly:0.625,tx:2,ty:5,z:0,fp:{w:0.5,d:0.5,h:1.75},naturalFoot:{x:147,y:238},anchorOffset:{x:0,y:4.5}},
+  'Room - Frog Teddy.png':{lx:0.1719,ly:0.9531,tx:1,ty:8,z:0,fp:{w:0.5,d:0.75,h:1.75},naturalFoot:{x:68,y:280},anchorOffset:{x:-2,y:9}},
+  'Room - Laptop.png':{lx:0.7031,ly:0.5781,tx:6,ty:5,z:0,fp:{w:1,d:1.25,h:2},naturalFoot:{x:288,y:304},anchorOffset:{x:-4,y:17}},
+  'Room - Plant oval base.png':{lx:0.0938,ly:0.4219,tx:1,ty:3,z:0,fp:{w:1,d:1,h:2.25},naturalFoot:{x:173,y:196},anchorOffset:{x:-2,y:12.5}},
+  'Room - Plant.png':{lx:0.9219,ly:0.0938,tx:7,ty:1,z:0,fp:{w:1,d:1,h:3.25},naturalFoot:{x:461,y:272},anchorOffset:{x:-2,y:15}},
+  'Room - Speakers.png':{lx:0.5,ly:0.1875,tx:4,ty:2,z:0,fp:{w:0.5,d:1.5,h:1.25},naturalFoot:{x:332,y:222},anchorOffset:{x:-1.5,y:16}},
+  'Room - Table.png':{lx:0.9063,ly:0.7656,tx:7,ty:6,z:0,fp:{w:1.5,d:3.75,h:3.25},naturalFoot:{x:289,y:374},anchorOffset:{x:-2,y:34}},
+  'Room - Vinyl Player.png':{lx:0.7031,ly:0.4063,tx:6,ty:3,z:0,fp:{w:1.25,d:1,h:0.5},naturalFoot:{x:331,y:284},anchorOffset:{x:-1.5,y:14.5}},
+  'Room - Avatar.png':{lx:0.5,ly:0.5,tx:4,ty:4,z:0,fp:{w:0.5,d:0.5,h:4.5},naturalFoot:{x:257,y:240},anchorOffset:{x:-2,y:0}},
+  'Room - Bed.png':{lx:0.2188,ly:0.1719,tx:2,ty:1,z:0,fp:{w:3.5,d:2,h:2.25},naturalFoot:{x:274,y:216},anchorOffset:{x:1.5,y:43}},
+  'Room - Sun.png':{lx:0.7188,ly:0.0313,tx:6,ty:0,z:0,fp:{w:1,d:1,h:1},naturalFoot:{x:423,y:146},anchorOffset:{x:0,y:0}},
+  'Room - Moon.png':{lx:0.9688,ly:0.0938,tx:8,ty:1,z:0,fp:{w:1,d:1,h:1},naturalFoot:{x:467,y:168},anchorOffset:{x:0,y:0}},
+  'Room - Blinds.png':{lx:0.7422,ly:-0.0234,tx:6,ty:0,z:0,fp:{w:1,d:1,h:1},naturalFoot:{x:443,y:224},anchorOffset:{x:0.5,y:2}}
+};
+
+// ── KEYFRAMES ────────────────────────────────────────
+// Each frame: {t:0-1, lx:0-1, ly:0-1, z:tiles}
+// Interpolate: pos = interpKFs(KEYFRAMES[name], t)
+// Draw:        ctx.drawImage(img, pos.lx→screen.x - nf.x, pos.ly→screen.y - nf.y - pos.z*16, 512, 384)
+const KEYFRAMES={
+  'Room - Sun.png': [
+    {t:0,lx:0.3906,ly:-0.2969,z:0},
+    {t:1,lx:0.7188,ly:0.0313,z:0},
+  ],
+  'Room - Moon.png': [
+    {t:0,lx:0.5781,ly:-0.2969,z:0},
+    {t:1,lx:0.9688,ly:0.0938,z:0},
+  ],
+  'Room - Blinds.png': [
+    {t:0,lx:0.7422,ly:-0.0234,z:0},
+    {t:1,lx:0.7422,ly:-0.0234,z:4.5},
+  ],
+};
+
+// ── AUDIO (Web Audio API PannerNode) ─────────────────
+// Bookshelf: setPosition(-4.38,0.00,2.81)
+// Cat: setPosition(-3.13,0.00,-3.91)
+// Coffee: setPosition(1.56,0.00,2.19)
+// Duck teddy: setPosition(-3.13,0.00,1.25)
+// Frog Teddy: setPosition(-3.28,0.00,4.53)
+// Laptop: setPosition(2.03,0.00,0.78)
+// Plant oval base: setPosition(-4.06,0.00,-0.78)
+// Plant: setPosition(4.22,0.00,-4.06)
+// Speakers: setPosition(0.00,0.00,-3.13)
+// Table: setPosition(4.06,0.00,2.66)
+// Vinyl Player: setPosition(2.03,0.00,-0.94)
+// Avatar: setPosition(0.00,0.00,0.00)
+// Bed: setPosition(-2.81,0.00,-3.28)
+// Sun: setPosition(2.19,0.00,-4.69)
+// Moon: setPosition(4.69,0.00,-4.06)
+// Blinds: setPosition(2.42,0.00,-5.23)
