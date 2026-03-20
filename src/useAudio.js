@@ -121,16 +121,17 @@ function makeCrushCurve(crush) {
 }
 
 function lampTone(n) {
-  const lowShelfGain  = (n - 0.5) * 12;
-  const highShelfGain = (0.5 - n) * 10;
+  // n=0: COLD (thin, icy). n=0.5: NEUTRAL. n=1: HOT (thick, warm, saturated)
+  const lowShelfGain  = (n - 0.5) * 22;   // was ±6dB, now ±11dB
+  const highShelfGain = (0.5 - n) * 16;   // was ±5dB, now ±8dB
   const warmAmt       = n > 0.5 ? (n - 0.5) * 2 : 0;
   return {
     lowShelfGain,
     highShelfGain,
-    satAmount: warmAmt * 8,
-    satWet:    warmAmt * 0.4,
-    satDry:    1 - warmAmt * 0.4 * 0.15,
-    humLevel:  warmAmt * 0.022,
+    satAmount: warmAmt * 12,       // was 8
+    satWet:    warmAmt * 0.55,     // was 0.4
+    satDry:    1 - warmAmt * 0.2,  // was 0.06
+    humLevel:  warmAmt * 0.035,    // was 0.022
   };
 }
 
@@ -510,8 +511,10 @@ export default function useAudio() {
 
   const applyBlinds = useCallback((v) => {
     if (!blindsShelf.current || !ctx.current) return;
-    blindsShelf.current.gain.setTargetAtTime(-14 * v, ctx.current.currentTime, 0.12);
-    masterGain.current.gain.setTargetAtTime(0.85 * (1 - v * 0.35), ctx.current.currentTime, 0.12);
+    // v=0: open, v=1: closed. Much more dramatic now.
+    blindsShelf.current.gain.setTargetAtTime(-22 * v, ctx.current.currentTime, 0.12);
+    // Volume drops to ~10% when fully closed
+    masterGain.current.gain.setTargetAtTime(0.85 * (1 - v * 0.88), ctx.current.currentTime, 0.12);
   }, []);
 
   const applyLamp = useCallback((v) => {

@@ -1070,8 +1070,8 @@ export default function App() {
         osc.send(amb.oscAddress, '0.0');
         next.delete(ambId);
       } else {
-        // Turn on — send current vol (default 0.4)
-        const vol = ambientVolumes.current[ambId] ?? 0.4;
+        // Turn on — send current vol (default 0.3, kept low so music stays foregrounded)
+        const vol = Math.min(ambientVolumes.current[ambId] ?? 0.3, 0.5);
         osc.send(amb.oscAddress, vol.toFixed(3));
         next.add(ambId);
       }
@@ -1194,8 +1194,8 @@ export default function App() {
                       <span style={{fontSize:8,color:isOn?tCol:dCol,letterSpacing:.3}}>{amb.label}</span>
                     </div>
                     {isOn&&(
-                      <input type="range" min={0} max={1} step={.02}
-                        defaultValue={.4}
+                      <input type="range" min={0} max={0.5} step={.02}
+                        defaultValue={.3}
                         onChange={e=>setAmbientVol(amb.id,parseFloat(e.target.value))}
                         onPointerDown={e=>e.stopPropagation()}
                         style={{width:'100%',marginTop:2,accentColor:amb.color,height:3}}/>
