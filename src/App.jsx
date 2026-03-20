@@ -6,6 +6,8 @@
  *  - Ambient sounds: Rain, Storm, Ocean, Fireplace — Web Audio, no files needed
  *  - Canvas rain: animated pixel raindrops drawn between sky and window layers
  *    when weather = 'rain', clipped to the window opening area
+ *  - Effect objects: Coffee/Vinyl/Laptop send depth (0-1) to Max via OSC
+ *    on place, drag (throttled 50ms), and remove (sends 0).
  */
 import { useState, useRef, useCallback, useEffect } from 'react';
 import './index.css';
@@ -91,6 +93,9 @@ const LAYER_ORDER = [
   { name:'Room - blinds cover.png',          type:'static'      },
 ];
 
+// ─── OBJECTS DEF ─────────────────────────────────────────────────────────────
+// oscAddress — if set, this object sends depth (0–1) to MaxMSP on place/drag/remove.
+// soundRole:null — pure effect objects don't trigger stems.
 const OBJECTS_DEF = [
   { id:'Bed',       sprite:'Room - Bed.png',             soundRole:'melody2',  name:'Bed'          },
   { id:'Bookshelf', sprite:'Room - Bookshelf.png',       soundRole:'bass',     name:'Bookshelf'    },
@@ -98,131 +103,22 @@ const OBJECTS_DEF = [
   { id:'Plant',     sprite:'Room - Plant.png',           soundRole:'texture',  name:'Plant (box)'  },
   { id:'PlantOval', sprite:'Room - Plant oval base.png', soundRole:'harmony',  name:'Plant (oval)' },
   { id:'Cat',       sprite:'Room - Cat.png',             soundRole:'sparkle',  name:'Cat'          },
-  { id:'Coffee',    sprite:'Room - Coffee.png',          soundRole:null,       name:'Coffee Mug',  isSpeed:true },
+  { id:'Coffee',    sprite:'Room - Coffee.png',          soundRole:null,       name:'Coffee Mug',  isSpeed:true, oscAddress:'/soundroom/coffee' },
   { id:'Duck',      sprite:'Room - Duck teddy.png',      soundRole:'pad',      name:'Duck Teddy'   },
   { id:'Frog',      sprite:'Room - Frog Teddy.png',      soundRole:'arp',      name:'Frog Teddy'   },
-  { id:'Laptop',    sprite:'Room - Laptop.png',          soundRole:'laptop',   name:'Laptop'       },
+  { id:'Laptop',    sprite:'Room - Laptop.png',          soundRole:null,       name:'Laptop',      oscAddress:'/soundroom/laptop' },
   { id:'Speakers',  sprite:'Room - Speakers.png',        soundRole:'rhythm',   name:'Speakers'     },
-  { id:'Vinyl',     sprite:'Room - Vinyl Player.png',    soundRole:'vinyl',    name:'Vinyl Player' },
+  { id:'Vinyl',     sprite:'Room - Vinyl Player.png',    soundRole:null,       name:'Vinyl Player', oscAddress:'/soundroom/vinyl' },
 ];
 
 // ─── AMBIENT SOUND DEFINITIONS ───────────────────────────────────────────────
-// Each ambient is generated entirely via Web Audio — no files needed.
-// 'make' returns a function that starts the sound and returns a stop() fn.
+// Ambience definitions — OSC-only, synthesised in MaxMSP.
+// Each sends /soundroom/amb/<id> with a 0-1 gain value.
 const AMBIENTS = [
-  {
-    id: 'rain',
-    label: 'Rain',
-    icon: '🌧',
-    desc: 'Soft rain on glass',
-    color: '#6090c0',
-    make: (ctx, dest) => {
-      // White noise filtered to rain-like hiss
-      const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
-      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 1800;
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';  lp.frequency.value = 8000;
-      const g  = ctx.createGain(); g.gain.value = 0.18;
-      src.connect(hp); hp.connect(lp); lp.connect(g); g.connect(dest);
-      src.start();
-      return { gainNode: g, stop: () => { try { src.stop(); } catch(_){} } };
-    },
-  },
-  {
-    id: 'storm',
-    label: 'Storm',
-    icon: '⛈',
-    desc: 'Thunder & heavy rain',
-    color: '#7070a0',
-    make: (ctx, dest) => {
-      // Heavy rain noise
-      const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
-      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 800;
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass';  lp.frequency.value = 6000;
-      const g  = ctx.createGain(); g.gain.value = 0.28;
-      src.connect(hp); hp.connect(lp); lp.connect(g); g.connect(dest);
-      src.start();
-      // Periodic thunder rumble
-      let thunderTimer;
-      const thunder = () => {
-        const tg = ctx.createGain(); tg.gain.value = 0;
-        const osc = ctx.createOscillator(); osc.type = 'sawtooth'; osc.frequency.value = 40 + Math.random() * 30;
-        const tlp = ctx.createBiquadFilter(); tlp.type = 'lowpass'; tlp.frequency.value = 120;
-        osc.connect(tlp); tlp.connect(tg); tg.connect(dest);
-        const now = ctx.currentTime;
-        tg.gain.setValueAtTime(0, now);
-        tg.gain.linearRampToValueAtTime(0.35 + Math.random() * 0.2, now + 0.1);
-        tg.gain.exponentialRampToValueAtTime(0.001, now + 2.5);
-        osc.start(now); osc.stop(now + 3);
-        thunderTimer = setTimeout(thunder, 6000 + Math.random() * 12000);
-      };
-      thunderTimer = setTimeout(thunder, 2000 + Math.random() * 4000);
-      return { gainNode: g, stop: () => { try { src.stop(); } catch(_){} clearTimeout(thunderTimer); } };
-    },
-  },
-  {
-    id: 'ocean',
-    label: 'Ocean',
-    icon: '🌊',
-    desc: 'Distant waves',
-    color: '#408090',
-    make: (ctx, dest) => {
-      const buf = ctx.createBuffer(1, ctx.sampleRate * 4, ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 600;
-      const g  = ctx.createGain(); g.gain.value = 0.22;
-      // LFO for wave rhythm
-      const lfo = ctx.createOscillator(); lfo.type = 'sine'; lfo.frequency.value = 0.12;
-      const lfog = ctx.createGain(); lfog.gain.value = 0.1;
-      lfo.connect(lfog); lfog.connect(g.gain);
-      src.connect(lp); lp.connect(g); g.connect(dest);
-      src.start(); lfo.start();
-      return { gainNode: g, stop: () => { try { src.stop(); lfo.stop(); } catch(_){} } };
-    },
-  },
-  {
-    id: 'fireplace',
-    label: 'Fireplace',
-    icon: '🔥',
-    desc: 'Crackling fire',
-    color: '#c06020',
-    make: (ctx, dest) => {
-      const buf = ctx.createBuffer(1, ctx.sampleRate * 2, ctx.sampleRate);
-      const d = buf.getChannelData(0);
-      for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
-      const src = ctx.createBufferSource(); src.buffer = buf; src.loop = true;
-      const lp = ctx.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 1200;
-      const hp = ctx.createBiquadFilter(); hp.type = 'highpass'; hp.frequency.value = 80;
-      const g  = ctx.createGain(); g.gain.value = 0.2;
-      // Crackle: random short bursts
-      let crackleTimer;
-      const crackle = () => {
-        const cg = ctx.createGain(); cg.gain.value = 0;
-        const cbuf = ctx.createBuffer(1, ctx.sampleRate * 0.04, ctx.sampleRate);
-        const cd = cbuf.getChannelData(0);
-        for (let i = 0; i < cd.length; i++) cd[i] = Math.random() * 2 - 1;
-        const csrc = ctx.createBufferSource(); csrc.buffer = cbuf;
-        const clp = ctx.createBiquadFilter(); clp.type = 'bandpass'; clp.frequency.value = 2000 + Math.random() * 3000;
-        csrc.connect(clp); clp.connect(cg); cg.connect(dest);
-        const now = ctx.currentTime;
-        cg.gain.setValueAtTime(0.15 + Math.random() * 0.3, now);
-        cg.gain.exponentialRampToValueAtTime(0.001, now + 0.05);
-        csrc.start(now); csrc.stop(now + 0.06);
-        crackleTimer = setTimeout(crackle, 80 + Math.random() * 400);
-      };
-      crackleTimer = setTimeout(crackle, 100);
-      src.connect(lp); lp.connect(hp); hp.connect(g); g.connect(dest);
-      src.start();
-      return { gainNode: g, stop: () => { try { src.stop(); } catch(_){} clearTimeout(crackleTimer); } };
-    },
-  },
+  { id:'rain',      label:'Rain',      icon:'🌧', desc:'Soft rain on glass',  color:'#6090c0', oscAddress:'/soundroom/amb/rain'  },
+  { id:'storm',     label:'Storm',     icon:'⛈',  desc:'Thunder & heavy rain', color:'#7070a0', oscAddress:'/soundroom/amb/storm' },
+  { id:'ocean',     label:'Ocean',     icon:'🌊', desc:'Distant waves',        color:'#408090', oscAddress:'/soundroom/amb/ocean' },
+  { id:'fireplace', label:'Fireplace', icon:'🔥', desc:'Crackling fire',       color:'#c06020', oscAddress:'/soundroom/amb/fire'  },
 ];
 
 // ─── INTERACTION ZONES ────────────────────────────────────────────────────────
@@ -322,6 +218,8 @@ function wouldOverlap(sprite,lx,ly,placed) {
 function clamp(v,lo,hi){return Math.max(lo,Math.min(hi,v));}
 function computePan(lx){return clamp((lx-.5)*1.5,-.75,.75);}
 function computeVol(lx,ly){return .16+.28*Math.pow(clamp(ly,0,1),.65)+.06*(1-Math.min(1,Math.abs(lx-.5)*1.2));}
+// Depth: ly 0=far/top → 1=near/bottom. Used as effect intensity for OSC objects.
+function calcDepth(lx, ly){ return clamp(ly, 0, 1); }
 
 function drawIsoCube(ctx,lx,ly,w,d,h,zPx,topC,leftC,rightC,strokeC) {
   const fh=FLOOR.bot.y-FLOOR.top.y, pixH=h*fh*.55;
@@ -405,7 +303,6 @@ function DebugPanel({ floor,snapDiv,onSnapDivChange,placed,sel,setSel,anchors,sh
         ))}
       </div>
 
-      {/* ── Rain Polygon Mapper ── */}
       <div style={sec}>
         <div style={hdr}>Rain Polygon <span style={{color:rainPoly.length===4?grn:acc}}>{rainPoly.length}/4 pts</span></div>
         <div style={{fontSize:7,color:dim,marginBottom:6,lineHeight:1.5}}>
@@ -463,7 +360,7 @@ function DebugPanel({ floor,snapDiv,onSnapDivChange,placed,sel,setSel,anchors,sh
                 border:`1px solid ${isSel?acc:isPlaced?grn:'#1c2638'}`,background:isSel?'#1a1800':isPlaced?'#0a1410':'#080d14',
                 borderLeft:isPlaced?`3px solid ${grn}`:'1px solid #1c2638'}}>
               <div style={{flex:1,overflow:'hidden'}}>
-                <div style={{fontSize:9,color:isSel?acc:'#b0c4d8',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{o.name}</div>
+                <div style={{fontSize:9,color:isSel?acc:'#b0c4d8',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis'}}>{o.name}{o.oscAddress?' [fx]':''}</div>
                 {p?<div style={{fontSize:7,color:dim}}>lx:{p.lx.toFixed(3)} ly:{p.ly.toFixed(3)}</div>
                   :<div style={{fontSize:7,color:dim}}>not placed</div>}
               </div>
@@ -476,14 +373,13 @@ function DebugPanel({ floor,snapDiv,onSnapDivChange,placed,sel,setSel,anchors,sh
   );
 }
 
-// ─── INFO PANEL (right side — Meepooh style signal chain display) ────────────
+// ─── INFO PANEL ───────────────────────────────────────────────────────────────
 function InfoPanel({ isOpen, onToggle, placed, isNight, lamp, blindsT, weather, speed, activeAmbients }) {
   const mono = { fontFamily:"'Courier New',monospace" };
   const bg   = '#09071a';
   const bdr  = '#2a1a48';
   const acc  = isNight ? '#9878e8' : '#f0a860';
   const dim  = 'rgba(240,232,208,.35)';
-  const val  = 'rgba(240,232,208,.85)';
 
   const Row = ({ label, value, desc, active }) => (
     <div style={{ marginBottom:6 }}>
@@ -506,7 +402,6 @@ function InfoPanel({ isOpen, onToggle, placed, isNight, lamp, blindsT, weather, 
 
   return (
     <div style={{ position:'fixed', right:0, top:'50%', transform:'translateY(-50%)', zIndex:25, display:'flex', flexDirection:'row-reverse', alignItems:'stretch', pointerEvents:'none' }}>
-      {/* Toggle tab */}
       <button onClick={onToggle}
         style={{ pointerEvents:'all', width:18, background:bg, border:`2px solid ${bdr}`, borderRight:'none', borderLeft:'none',
           color:dim, cursor:'pointer', display:'flex', flexDirection:'column', alignItems:'center', justifyContent:'center',
@@ -515,7 +410,6 @@ function InfoPanel({ isOpen, onToggle, placed, isNight, lamp, blindsT, weather, 
         <span style={{ writingMode:'vertical-rl', fontSize:7, opacity:.5, letterSpacing:'.1em', transform:'rotate(180deg)' }}>INFO</span>
       </button>
 
-      {/* Panel body */}
       <div style={{ pointerEvents:'all', width: isOpen ? 200 : 0, background:bg, border:`2px solid ${bdr}`, borderRight:'none',
         overflow:'hidden', transition:'width .2s', display:'flex', flexDirection:'column' }}>
         <div style={{ padding:'8px 10px', borderBottom:`1px solid ${bdr}`, flexShrink:0 }}>
@@ -523,8 +417,7 @@ function InfoPanel({ isOpen, onToggle, placed, isNight, lamp, blindsT, weather, 
           <div style={{ fontSize:8, color:acc, marginTop:2, ...mono }}>{isNight ? 'NIGHT' : 'DAY'} · {isNight ? '110' : '80'} BPM · {isNight ? '8' : '16'} bars</div>
         </div>
 
-        <div style={{ overflowY:'auto', padding:'8px 10px', flex:1,
-          scrollbarWidth:'thin', scrollbarColor:`${bdr} transparent` }}>
+        <div style={{ overflowY:'auto', padding:'8px 10px', flex:1, scrollbarWidth:'thin', scrollbarColor:`${bdr} transparent` }}>
 
           <SectionHdr>Scene</SectionHdr>
           <Row label="Scene" value={isNight ? 'NIGHT' : 'DAY'} desc={isNight ? 'Synth energy night' : 'Slow piano soundscape'} active />
@@ -537,7 +430,14 @@ function InfoPanel({ isOpen, onToggle, placed, isNight, lamp, blindsT, weather, 
               const pan = computePan(pos.lx);
               const vol = computeVol(pos.lx, pos.ly);
               const panStr = Math.abs(pan) < .05 ? 'C' : pan < 0 ? `L${Math.round(-pan*100)}` : `R${Math.round(pan*100)}`;
-              return <Row key={o.id} label={o.name} value={`${Math.round(vol*100)}%`} desc={`pan ${panStr} · ${o.soundRole ?? 'fx'}`} active />;
+              // Effect objects: show depth% instead of volume
+              const displayVal = o.oscAddress
+                ? `${Math.round(calcDepth(pos.lx, pos.ly) * 100)}%`
+                : `${Math.round(vol*100)}%`;
+              const roleStr = o.oscAddress
+                ? `fx → ${o.oscAddress.split('/').pop()}`
+                : (o.soundRole ?? 'fx');
+              return <Row key={o.id} label={o.name} value={displayVal} desc={`pan ${panStr} · ${roleStr}`} active />;
             })}
           </>}
           {placedObjs.length === 0 && <div style={{ fontSize:8, color:dim, fontStyle:'italic', marginBottom:8, ...mono }}>no objects placed</div>}
@@ -571,7 +471,7 @@ export default function App() {
   const bgRef      = useRef(null);
   const ltRef      = useRef(null);
   const ovRef      = useRef(null);
-  const rnRef      = useRef(null);  // rain canvas — sits between sky and window layers
+  const rnRef      = useRef(null);
   const pageDivRef = useRef(null);
   const imgs       = useRef({});
   const [imgsLoaded, setImgsLoaded] = useState(false);
@@ -602,14 +502,10 @@ export default function App() {
   const [hovWindow,    setHovWindow]    = useState(false);
   const [infoPanelOpen, setInfoPanelOpen] = useState(false);
 
-  // ── Ambient audio state ───────────────────────────────────────────────────
-  // activeAmbients: Set of ambient ids currently playing
   const [activeAmbients, setActiveAmbients] = useState(new Set());
-  const ambientCtx      = useRef(null);
-  const ambientInstances = useRef({}); // id → { gainNode, stop }
-  const ambientVolumes   = useRef({}); // id → 0..1
+  // Ambient volumes: id -> 0..1 (default 0.4)
+  const ambientVolumes = useRef({});
 
-  // ── Rain animation state ──────────────────────────────────────────────────
   const rainDrops     = useRef([]);
   const rainRafRef    = useRef(null);
   const rainActiveRef = useRef(false);
@@ -621,6 +517,8 @@ export default function App() {
   const dragMoved        = useRef(false);
   const trayDragRef      = useRef(null);
   const placedRef        = useRef(placed);
+  // Throttle ref for OSC sends while dragging effect objects (50ms)
+  const oscDragThrottle  = useRef(0);
   useEffect(() => { placedRef.current = placed; }, [placed]);
   useEffect(() => { rainPolyRef.current = rainPoly; }, [rainPoly]);
 
@@ -740,7 +638,6 @@ export default function App() {
     } else {
       rainActiveRef.current = false;
       if (rainRafRef.current) cancelAnimationFrame(rainRafRef.current);
-      // Trigger one final draw to clear rain drops from the bg canvas
       drawRef.current?.();
     }
     return () => {
@@ -773,7 +670,6 @@ export default function App() {
         const img=imgs.current[layer.name];if(!img)return;
         if (layer.name==='Room - Day sky.png'){bgX.globalAlpha=1-dnRef.current;bgX.drawImage(img,0,0,W,H);bgX.globalAlpha=1;return;}
         if (layer.name==='Room - Night sky.png'){bgX.globalAlpha=dnRef.current;bgX.drawImage(img,0,0,W,H);bgX.globalAlpha=1;return;}
-        // ── Rain drawn here: after sky layers, clipped to window polygon ──
         if (layer.name==='Room - Floor cover.png' && rainActiveRef.current) {
           const poly = rainPolyRef.current;
           if (poly.length >= 3) {
@@ -783,7 +679,6 @@ export default function App() {
             for (let i=1;i<poly.length;i++) bgX.lineTo(poly[i].x, poly[i].y);
             bgX.closePath();
             bgX.clip();
-            // Fog — soft grey-white fill to make drops pop
             bgX.fillStyle = 'rgba(180,200,220,0.22)';
             bgX.fill();
             rainDrops.current.forEach(drop => {
@@ -925,8 +820,6 @@ export default function App() {
       ctx.beginPath();ctx.moveTo(hx,hy-12);ctx.lineTo(hx,hy+12);ctx.stroke();
     };
     drawCelestialDebug(true);drawCelestialDebug(false);
-
-    // ── Rain polygon overlay ──
     const poly=rainPolyRef.current;
     const cornerCols=['#e84a4a','#e8e84a','#4ae880','#4ac8e8'];
     const cornerLbls=['TL','TR','BR','BL'];
@@ -944,7 +837,6 @@ export default function App() {
       ctx.font='7px monospace';ctx.textAlign='left';ctx.fillStyle=cornerCols[i];
       ctx.fillText(`(${p.x},${p.y})`,p.x+7,p.y-4);
     });
-    // Show next click target
     if(poly.length<4){
       const next=cornerLbls[poly.length];
       ctx.font='bold 9px monospace';ctx.textAlign='left';ctx.fillStyle='rgba(160,240,180,.9)';
@@ -985,7 +877,6 @@ export default function App() {
   const onPointerDown=useCallback((e)=>{
     e.preventDefault();
     const{cx,cy}=getCanvasXY(e);
-    // ── In debug mode, clicks place rain polygon corners ──
     if(debug){
       setRainPoly(prev=>{
         if(prev.length>=4) return prev;
@@ -997,11 +888,9 @@ export default function App() {
     }
     const tasselY=217-blindsT*68;
     if(cx>=478&&cx<=500&&Math.abs(cy-tasselY)<20){setBlindsDragging(true);blindsDragStartY.current=cy;blindsDragStartT.current=blindsT;return;}
-    // Sun/moon take priority over window click
     const sunPos=getCelestialScreenPos(true),moonPos=getCelestialScreenPos(false),HIT_R=35;
     if(dnRef.current<.9&&sunPos&&Math.hypot(cx-sunPos.x,cy-sunPos.y)<HIT_R){startDnTransition(1);return;}
     if(dnRef.current>.1&&moonPos&&Math.hypot(cx-moonPos.x,cy-moonPos.y)<HIT_R){startDnTransition(0);return;}
-    // Click inside window polygon → toggle weather
     if(rainPolyRef.current.length===4 && ptInZone(cx,cy,rainPolyRef.current)){
       setWeather(w=>w==='rain'?'clear':'rain');
       return;
@@ -1027,11 +916,31 @@ export default function App() {
     dragMoved.current=true;
     const raw=s2l(cx,cy),pos=snapAndClampDyn(raw.lx,raw.ly,drag);
     setPlaced(prev=>({...prev,[drag]:pos}));
-  },[drag,blindsDragging,getCanvasXY,snapAndClampDyn,debug,getCelestialScreenPos,dn]);
+    // ── Send OSC for effect objects while dragging (throttled 50ms) ──
+    if (started) {
+      const def = OBJECTS_DEF.find(d => d.sprite === drag);
+      if (def?.oscAddress) {
+        const now = Date.now();
+        if (now - oscDragThrottle.current > 50) {
+          oscDragThrottle.current = now;
+          osc.send(def.oscAddress, calcDepth(pos.lx, pos.ly).toFixed(3));
+        }
+      }
+    }
+  },[drag,blindsDragging,getCanvasXY,snapAndClampDyn,debug,getCelestialScreenPos,dn,osc,started]);
 
   const onPointerUp=useCallback(()=>{
     if(drag){
-      if(!dragMoved.current){setPlaced(prev=>{const n={...prev};delete n[drag];return n;});setSel(null);}
+      if(!dragMoved.current){
+        // Click on placed object = remove it
+        setPlaced(prev=>{const n={...prev};delete n[drag];return n;});
+        setSel(null);
+        // Send 0 for effect objects when click-removed
+        if (started) {
+          const def = OBJECTS_DEF.find(d => d.sprite === drag);
+          if (def?.oscAddress) osc.send(def.oscAddress, '0.0');
+        }
+      }
       else{
         const currentPos=placedRef.current[drag];
         if(currentPos&&wouldOverlap(drag,currentPos.lx,currentPos.ly,placedRef.current)){
@@ -1041,7 +950,7 @@ export default function App() {
       }
     }
     setDrag(null);setBlindsDragging(false);dragStartPos.current=null;dragMoved.current=false;
-  },[drag]);
+  },[drag,osc,started]);
 
   const onPointerLeave=useCallback(()=>{
     setMouseLXY(null);
@@ -1064,7 +973,13 @@ export default function App() {
           if(cx>=0&&cx<=W&&cy>=0&&cy<=H){
             const raw=s2l(cx,cy),pos=snapAndClamp(raw.lx,raw.ly,def2.sprite,snapDiv);
             if(!isNaN(pos.lx)&&!isNaN(pos.ly)){
-              if(!wouldOverlap(def2.sprite,pos.lx,pos.ly,placedRef.current))setPlaced(prev=>({...prev,[def2.sprite]:pos}));
+              if(!wouldOverlap(def2.sprite,pos.lx,pos.ly,placedRef.current)){
+                setPlaced(prev=>({...prev,[def2.sprite]:pos}));
+                // ── Send OSC on initial placement for effect objects ──
+                if (started && def2.oscAddress) {
+                  osc.send(def2.oscAddress, calcDepth(pos.lx, pos.ly).toFixed(3));
+                }
+              }
               else{setDropBlocked(true);setTimeout(()=>setDropBlocked(false),400);}
             }
           }
@@ -1074,9 +989,17 @@ export default function App() {
       window.removeEventListener('pointermove',onMove);window.removeEventListener('pointerup',onUp);
     };
     window.addEventListener('pointermove',onMove);window.addEventListener('pointerup',onUp);
-  },[]);
+  },[snapDiv,osc,started]);
 
-  const removeObj=useCallback((sprite)=>{setPlaced(prev=>{const n={...prev};delete n[sprite];return n;});setSel(null);},[]);
+  // Send 0 for effect objects when removed via the Remove button
+  const removeObj=useCallback((sprite)=>{
+    if (started) {
+      const def = OBJECTS_DEF.find(d => d.sprite === sprite);
+      if (def?.oscAddress) osc.send(def.oscAddress, '0.0');
+    }
+    setPlaced(prev=>{const n={...prev};delete n[sprite];return n;});
+    setSel(null);
+  },[osc,started]);
 
   // ── OSC ───────────────────────────────────────────────────────────────────
   const clearTimers=useCallback(()=>{transTimers.current.forEach(clearTimeout);transTimers.current=[];},[]);
@@ -1094,8 +1017,6 @@ export default function App() {
   },[placed,osc]);
   const handleStart=useCallback(()=>{
     setShowLoad(false);setStarted(true);
-    if (!ambientCtx.current) ambientCtx.current = new (window.AudioContext || window.webkitAudioContext)();
-    // audio.start disabled — using Max MSP
     const msgs = [];
     OBJECTS_DEF.forEach(({soundRole})=>{if(soundRole)msgs.push([`/soundroom/layer/${soundRole}`,'0.0','0.0','0.0']);});
     msgs.push(['/soundroom/layer/harmony','0.0','0.18','1.0']);
@@ -1104,7 +1025,9 @@ export default function App() {
     msgs.push(['/soundroom/lamp','0.0']);
     msgs.push(['/soundroom/weather','0.0']);
     msgs.push(['/soundroom/speed','1.0']);
-    // waitAndSend polls every 100ms until WebSocket is open, then sends
+    // ── Initialise all effect OSC addresses to 0 at startup ──
+    OBJECTS_DEF.forEach(({oscAddress}) => { if (oscAddress) msgs.push([oscAddress, '0.0']); });
+    AMBIENTS.forEach(({oscAddress}) => msgs.push([oscAddress, '0.0']));
     const wsFn = osc.waitAndSend || osc.send;
     msgs.forEach(([addr,...args], i) => setTimeout(() => wsFn(addr,...args), i*30));
   },[osc, audio]);
@@ -1114,20 +1037,15 @@ export default function App() {
   useEffect(()=>{if(started)osc.send('/soundroom/weather',weather==='rain'?'1.0':'0.0');},[weather,started,osc]);
   useEffect(()=>{if(started){sendAll();pushSpeed();}},[placed,started,sendAll,pushSpeed]);
 
-  // ── WEB AUDIO — mirrors OSC, fires in parallel ────────────────────────────
-  // Day/night scene transition
+  // ── WEB AUDIO ─────────────────────────────────────────────────────────────
   useEffect(()=>{
     if(!started)return;
     if(isNight===prevNight.current)return;
     audio.transitionScene(isNight?'night':'day', placed);
   },[isNight,started,audio,placed]);
-  // Blinds → highshelf cut + master dim (v: 0=open/bright, 1=closed/muffled)
   useEffect(()=>{ if(started) audio.applyBlinds(1-blindsT); },[blindsT,started,audio]);
-  // Lamp → warm/cold EQ + saturation
   useEffect(()=>{ if(started) audio.applyLamp(lamp); },[lamp,started,audio]);
-  // Weather → lowpass muffle
   useEffect(()=>{ if(started) audio.applyWeather(weather==='rain'?1:0); },[weather,started,audio]);
-  // Placed objects → start/stop stems, vinyl FX, laptop FX, speed
   useEffect(()=>{
     if(!started)return;
     audio.syncAll(placed);
@@ -1140,55 +1058,39 @@ export default function App() {
   },[placed,started,audio]);
 
   // ── Ambient toggle ────────────────────────────────────────────────────────
+  // Toggle an ambience on/off — sends gain via OSC to Max.
   const toggleAmbient = useCallback((ambId) => {
-    const ctx = ambientCtx.current;
-    if (!ctx) return;
-    if (ctx.state === 'suspended') ctx.resume();
-
+    if (!started) return;
+    const amb = AMBIENTS.find(a => a.id === ambId);
+    if (!amb) return;
     setActiveAmbients(prev => {
       const next = new Set(prev);
       if (next.has(ambId)) {
-        // Stop
-        const inst = ambientInstances.current[ambId];
-        if (inst) {
-          // Fade out then stop
-          const g = inst.gainNode;
-          if (g) {
-            g.gain.setTargetAtTime(0, ctx.currentTime, 0.5);
-          }
-          setTimeout(() => { inst.stop(); delete ambientInstances.current[ambId]; }, 1500);
-        }
+        // Turn off — send 0
+        osc.send(amb.oscAddress, '0.0');
         next.delete(ambId);
       } else {
-        // Start
-        const amb = AMBIENTS.find(a => a.id === ambId);
-        if (amb) {
-          const inst = amb.make(ctx, ctx.destination);
-          ambientInstances.current[ambId] = inst;
-          // Fade in
-          if (inst.gainNode) {
-            const target = inst.gainNode.gain.value;
-            inst.gainNode.gain.setValueAtTime(0, ctx.currentTime);
-            inst.gainNode.gain.setTargetAtTime(target, ctx.currentTime, 0.8);
-          }
-        }
+        // Turn on — send current vol (default 0.4)
+        const vol = ambientVolumes.current[ambId] ?? 0.4;
+        osc.send(amb.oscAddress, vol.toFixed(3));
         next.add(ambId);
       }
       return next;
     });
-  }, []);
+  }, [started, osc]);
 
   const setAmbientVol = useCallback((ambId, vol) => {
     ambientVolumes.current[ambId] = vol;
-    const inst = ambientInstances.current[ambId];
-    if (inst?.gainNode && ambientCtx.current) {
-      inst.gainNode.gain.setTargetAtTime(vol, ambientCtx.current.currentTime, 0.1);
+    // Only send if currently active
+    if (activeAmbients.has(ambId) && started) {
+      const amb = AMBIENTS.find(a => a.id === ambId);
+      if (amb) osc.send(amb.oscAddress, vol.toFixed(3));
     }
-  }, []);
+  }, [activeAmbients, started, osc]);
 
-  // Cleanup ambients on unmount
+  // Zero all ambiences on unmount
   useEffect(() => () => {
-    Object.values(ambientInstances.current).forEach(inst => { try { inst.stop(); } catch(_){} });
+    if (started) AMBIENTS.forEach(({oscAddress}) => osc.send(oscAddress, '0.0'));
   }, []);
 
   // ── Shuffle / Reset ───────────────────────────────────────────────────────
@@ -1215,7 +1117,6 @@ export default function App() {
   return (
     <div ref={pageDivRef} style={{width:'100%',minHeight:'100vh',display:'flex',fontFamily:"'Courier New',monospace",boxSizing:'border-box'}}>
 
-      {/* Loading overlay */}
       {showLoad&&(
         <div style={{position:'fixed',inset:0,cursor:'pointer',zIndex:100,background:'rgba(20,10,4,.82)',backdropFilter:'blur(3px)',
           display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'1.4rem',fontFamily:"'Courier New',monospace"}}
@@ -1232,16 +1133,13 @@ export default function App() {
         </div>
       )}
 
-      {/* Debug sidebar */}
       {debug&&(<DebugPanel floor={FLOOR} snapDiv={snapDiv} onSnapDivChange={setSnapDiv} placed={placed} sel={sel} setSel={setSel} anchors={ANCHORS} showFP={showFP} setShowFP={setShowFP} showCubes={showCubes} setShowCubes={setShowCubes} objects={OBJECTS_DEF}
         rainPoly={rainPoly}
         onResetPoly={()=>{ const p=[]; setRainPoly(p); rainPolyRef.current=p; rainDrops.current=[]; }}
       />)}
 
-      {/* Main content */}
       <div style={{flex:1,display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',padding:16,gap:8}}>
 
-        {/* Top bar */}
         <div style={{width:DW+140,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{fontSize:10,color:dCol,letterSpacing:3}}>
             ◈ SOUND ROOM · <span style={{color:isDark?'#80b8e0':'#d47830',transition:'color 1s'}}>{isDark?'NIGHT':'DAY'}</span>
@@ -1252,6 +1150,12 @@ export default function App() {
               [()=>startDnTransition(dn<.5?1:0),isDark?'☀ day':'🌙 night'],
               [doShuffle,'shuffle'],
               [()=>{
+                // Zero out effect + ambience OSC addresses on reset
+                if (started) {
+                  OBJECTS_DEF.forEach(({oscAddress}) => { if (oscAddress) osc.send(oscAddress, '0.0'); });
+                  AMBIENTS.forEach(({oscAddress}) => osc.send(oscAddress, '0.0'));
+                }
+                setActiveAmbients(new Set());
                 setPlaced({});setSel(null);
                 setLamp(0);setBlindsT(0.25);setWeather('clear');
                 setSpeed(1.0);startDnTransition(0);
@@ -1270,16 +1174,12 @@ export default function App() {
           </div>
         </div>
 
-        {/* Room row */}
         <div style={{display:'flex',gap:8,alignItems:'flex-start'}}>
-          {/* Lamp + Ambient sounds stacked on the left */}
           <div style={{display:'flex',flexDirection:'column',gap:6}}>
-            {/* Lamp dial */}
             <div style={{background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,transition:'background .8s,border-color .8s',padding:'8px 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:2}}>
               <Dial value={lamp} onChange={setLamp} label="LAMP" size={52} color={isDark?'#80b8e0':'#d4a840'}/>
             </div>
 
-            {/* Ambient sounds panel */}
             <div style={{background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,transition:'background .8s,border-color .8s',padding:'8px 8px',display:'flex',flexDirection:'column',gap:2,minWidth:72}}>
               <div style={{fontSize:6,color:dCol,letterSpacing:1.5,textAlign:'center',marginBottom:3}}>ATMOSPHERE</div>
               {AMBIENTS.map(amb=>{
@@ -1306,7 +1206,6 @@ export default function App() {
             </div>
           </div>
 
-          {/* Canvas stack */}
           <div style={{position:'relative',width:DW,height:DH,flexShrink:0,
             border:`2px solid ${dropBlocked?'rgba(220,60,40,.8)':isDark?'rgba(40,70,120,.5)':'rgba(140,70,20,.4)'}`,
             borderRadius:3,transition:'border-color .15s',
@@ -1320,13 +1219,16 @@ export default function App() {
 
             {dropBlocked&&(<div style={{position:'absolute',inset:0,pointerEvents:'none',border:'3px solid rgba(220,60,40,.6)',borderRadius:2,boxShadow:'inset 0 0 40px rgba(220,60,40,.2)'}}/>)}
 
-            {/* Selected object info */}
             {sel&&selDef&&(
               <div style={{position:'absolute',bottom:10,left:10,zIndex:10,background:pBg,border:`1px solid ${pBdr}`,borderRadius:4,padding:'8px 12px'}}
                 onPointerDown={e=>e.stopPropagation()}>
                 <div style={{color:tCol,fontSize:11,marginBottom:2,letterSpacing:1}}>{selDef.name}</div>
                 <div style={{color:dCol,fontSize:8,marginBottom:6}}>
-                  {selDef.isSpeed?`⚡ speed: ${speed}x`:`${selDef.soundRole??'no sound'} · drag to move`}
+                  {selDef.oscAddress
+                    ? `⚡ fx → ${selDef.oscAddress.split('/').pop()} · depth ${Math.round(calcDepth(placed[sel]?.lx??0.5, placed[sel]?.ly??0.5)*100)}%`
+                    : selDef.isSpeed
+                      ? `⚡ speed: ${speed}x`
+                      : `${selDef.soundRole??'no sound'} · drag to move`}
                 </div>
                 <button onClick={()=>removeObj(sel)} style={{padding:'3px 10px',background:'rgba(160,50,30,.15)',border:'1px solid rgba(180,70,40,.35)',color:'#d08870',fontSize:9,cursor:'pointer',fontFamily:'inherit',borderRadius:3}}>remove</button>
               </div>
@@ -1334,7 +1236,6 @@ export default function App() {
             <div style={{position:'absolute',top:7,right:7,fontSize:8,color:dCol,pointerEvents:'none'}}>{placedCount}/{OBJECTS_DEF.length}</div>
           </div>
 
-          {/* Blinds slider */}
           <div style={{background:pBg,border:`1px solid ${pBdr}`,borderRadius:6,transition:'background .8s,border-color .8s',padding:'8px 10px',display:'flex',flexDirection:'column',alignItems:'center',gap:5}}>
             <div style={{fontSize:7,color:dCol,letterSpacing:1}}>BLINDS</div>
             <input type="range" min={0} max={1} step={.01} value={1-blindsT} onChange={e=>setBlindsT(1-(+e.target.value))}
@@ -1347,7 +1248,6 @@ export default function App() {
           </div>
         </div>
 
-        {/* Object tray */}
         <div style={{background:pBg,border:`1px solid ${pBdr}`,borderRadius:4,width:DW+140,display:'flex',flexWrap:'wrap',gap:6,alignItems:'flex-end',padding:'10px 12px'}}>
           <div style={{fontSize:8,color:dCol,letterSpacing:2,marginRight:4,alignSelf:'center'}}>OBJECTS</div>
           {OBJECTS_DEF.map(def=>{
@@ -1356,7 +1256,7 @@ export default function App() {
               <div key={def.id}
                 onMouseEnter={()=>setHovTray(def.id)} onMouseLeave={()=>setHovTray(null)}
                 onPointerDown={e=>onTrayDown(e,def)}
-                title={isPlaced?`${def.name} · placed`:`${def.name} · drag into room`}
+                title={isPlaced?`${def.name} · placed`:`${def.name}${def.oscAddress?' · fx':''}· drag into room`}
                 style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:3,padding:'6px 6px 3px',
                   background:isPlaced?'rgba(60,30,10,.04)':isHov?`rgba(${isDark?'60,100,160':'180,100,40'},.2)`:'rgba(60,30,10,.08)',
                   border:`1px solid rgba(${isDark?'80,130,200':'160,90,40'},${isPlaced?.04:isHov?.45:.14})`,
@@ -1365,6 +1265,10 @@ export default function App() {
                   boxShadow:isHov?`0 0 10px rgba(${isDark?'60,120,220':'200,130,50'},.3)`:'none',minWidth:64}}>
                 {imgEl&&<Thumbnail src={imgEl.src} sprite={def.sprite} maxW={72} maxH={54}/>}
                 {isPlaced&&(<div style={{position:'absolute',inset:0,display:'flex',alignItems:'center',justifyContent:'center',fontSize:16,color:`rgba(${isDark?'100,160,220':'160,90,40'},.5)`}}>✓</div>)}
+                {/* FX badge for effect objects */}
+                {def.oscAddress&&!isPlaced&&(
+                  <div style={{position:'absolute',top:3,right:3,fontSize:5,color:isDark?'#80c0ff':'#d47830',background:'rgba(0,0,0,.45)',padding:'1px 3px',borderRadius:2,letterSpacing:.5}}>FX</div>
+                )}
                 <div style={{fontSize:6,color:'rgba(255,255,255,.6)',background:'rgba(0,0,0,.4)',padding:'1px 4px',letterSpacing:.4,maxWidth:72,textAlign:'center',whiteSpace:'nowrap',overflow:'hidden',textOverflow:'ellipsis',borderRadius:2}}>
                   {def.name}
                 </div>
@@ -1376,14 +1280,12 @@ export default function App() {
         <div style={{fontSize:7,color:dCol,opacity:.35,letterSpacing:2}}>DESE-61003 · Imperial College London · Dyson School</div>
       </div>
 
-      {/* Drag ghost */}
       {trayDrag&&(
         <div style={{position:'fixed',left:trayDrag.x-40,top:trayDrag.y-30,zIndex:9999,pointerEvents:'none',opacity:.85,filter:'drop-shadow(0 4px 12px rgba(0,0,0,.7)) drop-shadow(0 0 8px rgba(255,190,60,.6))'}}>
           {imgs.current[trayDrag.def.sprite]&&(<Thumbnail src={imgs.current[trayDrag.def.sprite].src} sprite={trayDrag.def.sprite} maxW={72} maxH={54}/>)}
         </div>
       )}
 
-      {/* Info panel — right side signal chain display */}
       <InfoPanel
         isOpen={infoPanelOpen}
         onToggle={()=>setInfoPanelOpen(o=>!o)}
