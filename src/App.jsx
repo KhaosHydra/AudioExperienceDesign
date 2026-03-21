@@ -93,7 +93,11 @@ const LAYER_ORDER = [
   { name:'Room - blinds cover.png',          type:'static'      },
 ];
 
-// ─── OBJECTS DEF ─────────────────────────────────────────────────────────────
+// ─── LAPTOP BITCRUSHER STATES (match useAudio.js LAPTOP_STATES) ──────────────
+// OSC values map to MaxMSP scale 0-1 → degrade~ params (0=clean, 0.35=lo-fi, 0.7=glitch)
+const LAPTOP_OSC_VALUES = { 'CLEAN': 0.0, 'LO-FI': 0.6, 'GLITCH': 0.88 };
+
+
 // oscAddress — if set, this object sends depth (0–1) to MaxMSP on place/drag/remove.
 // soundRole:null — pure effect objects don't trigger stems.
 const OBJECTS_DEF = [
@@ -115,8 +119,6 @@ const OBJECTS_DEF = [
 // Ambience definitions — OSC-only, synthesised in MaxMSP.
 // Each sends /soundroom/amb/<id> with a 0-1 gain value.
 const AMBIENTS = [
-  { id:'rain',      label:'Rain',      icon:'🌧', desc:'Soft rain on glass',  color:'#6090c0', oscAddress:'/soundroom/amb/rain'  },
-  { id:'storm',     label:'Storm',     icon:'⛈',  desc:'Thunder & heavy rain', color:'#7070a0', oscAddress:'/soundroom/amb/storm' },
   { id:'ocean',     label:'Ocean',     icon:'🌊', desc:'Distant waves',        color:'#408090', oscAddress:'/soundroom/amb/ocean' },
   { id:'fireplace', label:'Fireplace', icon:'🔥', desc:'Crackling fire',       color:'#c06020', oscAddress:'/soundroom/amb/fire'  },
 ];
@@ -374,7 +376,7 @@ function DebugPanel({ floor,snapDiv,onSnapDivChange,placed,sel,setSel,anchors,sh
 }
 
 // ─── INFO PANEL ───────────────────────────────────────────────────────────────
-function InfoPanel({ isOpen, onToggle, placed, isNight, lamp, blindsT, weather, speed, activeAmbients }) {
+function InfoPanel({ isOpen, onToggle, placed, isNight, lamp, blindsT, weather, speed, activeAmbients, laptopLabel }) {
   const mono = { fontFamily:"'Courier New',monospace" };
   const bg   = '#09071a';
   const bdr  = '#2a1a48';
@@ -430,13 +432,28 @@ function InfoPanel({ isOpen, onToggle, placed, isNight, lamp, blindsT, weather, 
               const pan = computePan(pos.lx);
               const vol = computeVol(pos.lx, pos.ly);
               const panStr = Math.abs(pan) < .05 ? 'C' : pan < 0 ? `L${Math.round(-pan*100)}` : `R${Math.round(pan*100)}`;
-              // Effect objects: show depth% instead of volume
-              const displayVal = o.oscAddress
-                ? `${Math.round(calcDepth(pos.lx, pos.ly) * 100)}%`
-                : `${Math.round(vol*100)}%`;
-              const roleStr = o.oscAddress
-                ? `fx → ${o.oscAddress.split('/').pop()}`
-                : (o.soundRole ?? 'fx');
+              // Effect objects: show meaningful values per object type
+              let displayVal, roleStr;
+              if (o.id === 'Coffee') {
+                displayVal = `${speed}×`;
+                const bpm = isNight ? 110 : 80;
+                roleStr = `playback rate · ${Math.round(bpm * speed)} BPM · /soundroom/speed`;
+              } else if (o.id === 'Vinyl') {
+                const flutter = Math.abs(pos.lx - 0.5) * 2;
+                const warmth  = Math.round(calcDepth(pos.lx, pos.ly) * 100);
+                displayVal = `flutter ${Math.round(flutter * 100)}%`;
+                roleStr = `tape warble LFO · warmth LP ${warmth}% · /soundroom/vinyl`;
+              } else if (o.id === 'Laptop') {
+                displayVal = laptopLabel ?? 'CLEAN';
+                const stateDesc = { CLEAN: 'bypass · full freq range', 'LO-FI': 'crush=0.35 · subtle degradation', GLITCH: 'crush=0.7 · full digital glitch' };
+                roleStr = `bitcrusher: ${stateDesc[laptopLabel] ?? ''} · /soundroom/laptop`;
+              } else if (o.oscAddress) {
+                displayVal = `${Math.round(calcDepth(pos.lx, pos.ly) * 100)}%`;
+                roleStr = `fx → ${o.oscAddress.split('/').pop()}`;
+              } else {
+                displayVal = `${Math.round(vol*100)}%`;
+                roleStr = (o.soundRole ?? 'fx');
+              }
               return <Row key={o.id} label={o.name} value={displayVal} desc={`pan ${panStr} · ${roleStr}`} active />;
             })}
           </>}
@@ -451,7 +468,7 @@ function InfoPanel({ isOpen, onToggle, placed, isNight, lamp, blindsT, weather, 
           <Row label="Weather" value={weather === 'rain' ? 'RAIN' : 'CLEAR'}
             desc={weather === 'rain' ? 'Lowpass 550Hz · muffled' : 'Full frequency range'} active={weather !== 'rain'} />
           <Row label="Speed"   value={`${speed}×`}
-            desc={speed === 1 ? 'Normal playback rate' : speed < 1 ? 'Slowed · tape warble' : 'Faster · tape warble'} active={speed !== 1} />
+            desc={`${Math.round((isNight ? 110 : 80) * speed)} BPM${speed === 1 ? ' · normal rate' : speed < 1 ? ' · slowed · tape warble' : ' · faster · tape warble'}`} active={speed !== 1} />
 
           {activeAmbients.length > 0 && <>
             <SectionHdr>Atmosphere</SectionHdr>
@@ -460,6 +477,116 @@ function InfoPanel({ isOpen, onToggle, placed, isNight, lamp, blindsT, weather, 
               return amb ? <Row key={id} label={amb.label} value="ON" desc={amb.desc} active /> : null;
             })}
           </>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ─── MODE SELECT SCREEN ───────────────────────────────────────────────────────
+// Shown before the main splash. Lets the user pick OSC (MaxMSP) or Web Audio,
+// and gives an honest read on the current JS engine vs a hypothetical rebuild.
+// ─── MODE SELECT SCREEN ───────────────────────────────────────────────────────
+function ModeSelect({ onSelect }) {
+  const [step,    setStep]    = useState('main');
+  const [hov,     setHov]     = useState(null);
+  const [visible, setVisible] = useState(false);
+  useEffect(() => { const t = setTimeout(() => setVisible(true), 60); return () => clearTimeout(t); }, []);
+
+  const mono = { fontFamily: "'Courier New', monospace" };
+  const acc  = '#e8c84a', dim = 'rgba(240,232,208,.38)', bdr = 'rgba(232,200,74,.18)';
+  const grn  = '#4ae880', blu = '#4ac8e8';
+
+  const btnStyle = (id, color) => ({
+    cursor: 'pointer', padding: '14px 20px', borderRadius: 4, marginBottom: 10,
+    border: `1px solid ${hov === id ? color : bdr}`,
+    background: hov === id ? 'rgba(255,255,255,.07)' : 'rgba(0,0,0,.3)',
+    transition: 'all .15s', ...mono,
+  });
+  const titleStyle = (id, color) => ({
+    fontSize: 11, color: hov === id ? color : acc,
+    letterSpacing: 2, fontWeight: 'bold', marginBottom: 4,
+  });
+
+  const baseContainer = {
+    position: 'fixed', inset: 0, zIndex: 200,
+    background: 'rgba(6,8,18,.97)', backdropFilter: 'blur(4px)',
+    display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center',
+    opacity: visible ? 1 : 0, transition: 'opacity .5s', ...mono,
+  };
+
+  if (step === 'webaudio_info') {
+    return (
+      <div style={baseContainer}>
+        <div style={{ width: 460, maxWidth: '92vw' }}>
+          <div style={{ fontSize: 8, color: dim, letterSpacing: 3, marginBottom: 10 }}>◈ WEB AUDIO ENGINE — ASSESSMENT</div>
+
+          <div style={{ border: `1px solid rgba(74,232,128,.2)`, borderRadius: 4, padding: '12px 14px', marginBottom: 10, background: 'rgba(74,232,128,.04)' }}>
+            <div style={{ fontSize: 10, color: grn, letterSpacing: 2, marginBottom: 8 }}>▶ CURRENT ENGINE — GOOD ENOUGH FOR THIS PROJECT</div>
+            {['Stem-based playback: 19 stems, day + night scenes','BPM-locked loop scheduling — shared clock, no drift',
+              'Spatial pan/vol from room position','Lamp: low/high shelf EQ + soft saturation + 60Hz hum',
+              'Blinds: HF shelf cut + volume reduction','Weather: lowpass filter at 550Hz when rain',
+              'Vinyl: wow/flutter delay LFO + warmth filter','Laptop: bit-crush waveshaper (3 states)',
+              'Day↔Night: 3s bus crossfade'
+            ].map((t,i) => <div key={i} style={{ fontSize: 8, color: grn, letterSpacing: .5, lineHeight: 1.6 }}>✓ {t}</div>)}
+          </div>
+
+          <div style={{ border: `1px solid rgba(232,200,74,.2)`, borderRadius: 4, padding: '12px 14px', marginBottom: 10, background: 'rgba(232,200,74,.03)' }}>
+            <div style={{ fontSize: 10, color: acc, letterSpacing: 2, marginBottom: 8 }}>⚠ WITHOUT MAX — THESE ARE SILENT</div>
+            {['Ambient sounds (Rain/Storm/Ocean/Fire) — OSC-only → no browser synth yet',
+              'Speed warp — needs Max for tape-warble effect'
+            ].map((t,i) => <div key={i} style={{ fontSize: 8, color: acc, letterSpacing: .5, lineHeight: 1.6 }}>— {t}</div>)}
+          </div>
+
+          <div style={{ display: 'flex', gap: 8, marginTop: 4 }}>
+            <div
+              onMouseEnter={() => setHov('wa_go')} onMouseLeave={() => setHov(null)}
+              onClick={() => onSelect('webaudio')}
+              style={btnStyle('wa_go', grn)}>
+              <div style={titleStyle('wa_go', grn)}>▶ USE WEB AUDIO ENGINE</div>
+              <div style={{ fontSize: 8, color: dim }}>Stems play in-browser. Requires files in public/stems/</div>
+            </div>
+            <div onClick={() => setStep('main')}
+              style={{ cursor: 'pointer', padding: '14px 16px', border: `1px solid ${bdr}`, borderRadius: 4, fontSize: 9, color: dim, alignSelf: 'flex-start', ...mono }}>
+              ← back
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div style={baseContainer}>
+      <div style={{ width: 400, maxWidth: '92vw' }}>
+        <div style={{ marginBottom: 22, textAlign: 'center' }}>
+          <div style={{ fontSize: 8, color: dim, letterSpacing: 4, marginBottom: 8 }}>DESE-61003 · AUDIO EXPERIENCE DESIGN</div>
+          <div style={{ fontSize: 20, color: '#fff8f0', letterSpacing: 5, fontWeight: 'bold', textShadow: '0 0 30px rgba(232,200,74,.3)' }}>◈ SOUND ROOM ◈</div>
+          <div style={{ fontSize: 8, color: dim, letterSpacing: 3, marginTop: 6 }}>SELECT AUDIO MODE</div>
+        </div>
+        <div style={{ borderTop: `1px solid ${bdr}`, margin: '14px 0' }} />
+
+        <div onMouseEnter={() => setHov('osc')} onMouseLeave={() => setHov(null)}
+          onClick={() => onSelect('osc')} style={btnStyle('osc', acc)}>
+          <div style={titleStyle('osc', acc)}>◈ MAX/MSP — OSC MODE</div>
+          <div style={{ fontSize: 8, color: dim }}>Send OSC to MaxMSP. All audio handled by your patch. Requires Max running.</div>
+        </div>
+
+        <div onMouseEnter={() => setHov('webaudio')} onMouseLeave={() => setHov(null)}
+          onClick={() => setStep('webaudio_info')} style={btnStyle('webaudio', grn)}>
+          <div style={titleStyle('webaudio', grn)}>▶ WEB AUDIO — STANDALONE MODE</div>
+          <div style={{ fontSize: 8, color: dim }}>Run in-browser via Web Audio API. No Max required. Click to see engine details →</div>
+        </div>
+
+        <div onMouseEnter={() => setHov('both')} onMouseLeave={() => setHov(null)}
+          onClick={() => onSelect('both')} style={btnStyle('both', blu)}>
+          <div style={titleStyle('both', blu)}>⊕ HYBRID — OSC + WEB AUDIO</div>
+          <div style={{ fontSize: 8, color: dim }}>Both run simultaneously. Useful for A/B testing or hybrid setups.</div>
+        </div>
+
+        <div style={{ borderTop: `1px solid ${bdr}`, margin: '14px 0' }} />
+        <div style={{ fontSize: 7, color: dim, textAlign: 'center', letterSpacing: 1 }}>
+          OSC is silent without Max · Web Audio needs stems in public/stems/day/ and public/stems/night/
         </div>
       </div>
     </div>
@@ -485,10 +612,15 @@ export default function App() {
   const [showCubes,setShowCubes]= useState(true);
 
   const [lamp,     setLamp]     = useState(0);
-  const [blindsT,  setBlindsT]  = useState(0.25);
+  const [blindsT,  setBlindsT]  = useState(0.9);
   const [dn,       setDn]       = useState(0);
   const [weather,  setWeather]  = useState('clear');
   const [speed,    setSpeed]    = useState(1.0);
+  const [showModeSelect, setShowModeSelect] = useState(true);
+  const [audioMode,      setAudioMode]      = useState(null); // 'osc' | 'webaudio' | 'both'
+  // Derived from audioMode — declared early so all hooks/callbacks can close over them
+  const oscEnabled   = audioMode === 'osc'      || audioMode === 'both';
+  const audioEnabled = audioMode === 'webaudio' || audioMode === 'both';
   const [showLoad, setShowLoad] = useState(true);
   const [started,  setStarted]  = useState(false);
   const [hovTray,  setHovTray]  = useState(null);
@@ -510,7 +642,12 @@ export default function App() {
   const rainRafRef    = useRef(null);
   const rainActiveRef = useRef(false);
 
-  const blindsDragStartY = useRef(0);
+  const blindsTRef = useRef(blindsT);
+  const lampRef    = useRef(lamp);
+  const weatherRef = useRef(weather);
+  useEffect(() => { blindsTRef.current = blindsT; }, [blindsT]);
+  useEffect(() => { lampRef.current    = lamp;    }, [lamp]);
+  useEffect(() => { weatherRef.current = weather; }, [weather]);
   const blindsDragStartT = useRef(0);
   const drawRef          = useRef(null);
   const dragStartPos     = useRef(null);
@@ -530,6 +667,8 @@ export default function App() {
   const audio       = useAudio();
   const [laptopLabel,  setLaptopLabel]  = useState('CLEAN');
   const [stemProgress, setStemProgress] = useState(0);
+  const [stemLoadError, setStemLoadError] = useState(false);
+  const [isLoadingStems, setIsLoadingStems] = useState(false);
   const isNight     = dn >= 0.5;
   const CFMS        = 5000;
 
@@ -917,7 +1056,7 @@ export default function App() {
     const raw=s2l(cx,cy),pos=snapAndClampDyn(raw.lx,raw.ly,drag);
     setPlaced(prev=>({...prev,[drag]:pos}));
     // ── Send OSC for effect objects while dragging (throttled 50ms) ──
-    if (started) {
+    if (started && oscEnabled) {
       const def = OBJECTS_DEF.find(d => d.sprite === drag);
       if (def?.oscAddress) {
         const now = Date.now();
@@ -927,18 +1066,41 @@ export default function App() {
         }
       }
     }
-  },[drag,blindsDragging,getCanvasXY,snapAndClampDyn,debug,getCelestialScreenPos,dn,osc,started]);
+  },[drag,blindsDragging,getCanvasXY,snapAndClampDyn,debug,getCelestialScreenPos,dn,osc,started,oscEnabled]);
 
   const onPointerUp=useCallback(()=>{
     if(drag){
       if(!dragMoved.current){
-        // Click on placed object = remove it
-        setPlaced(prev=>{const n={...prev};delete n[drag];return n;});
-        setSel(null);
-        // Send 0 for effect objects when click-removed
-        if (started) {
-          const def = OBJECTS_DEF.find(d => d.sprite === drag);
-          if (def?.oscAddress) osc.send(def.oscAddress, '0.0');
+        const def = OBJECTS_DEF.find(d => d.sprite === drag);
+        if (def?.id === 'Laptop' && started) {
+          // Click laptop = cycle bitcrusher state (CLEAN → LO-FI → GLITCH)
+          if (audioEnabled) {
+            const label = audio.cycleLaptop();
+            if (label) {
+              setLaptopLabel(label);
+              // Send the matching OSC depth value to Max (0 / 0.35 / 0.7)
+              if (oscEnabled && def.oscAddress) {
+                const oscVal = LAPTOP_OSC_VALUES[label] ?? 0.0;
+                osc.send(def.oscAddress, oscVal.toFixed(3));
+              }
+            }
+          } else if (oscEnabled && def.oscAddress) {
+            // OSC-only mode: cycle through states ourselves
+            setLaptopLabel(prev => {
+              const states = ['CLEAN', 'LO-FI', 'GLITCH'];
+              const next = states[(states.indexOf(prev) + 1) % states.length];
+              osc.send(def.oscAddress, (LAPTOP_OSC_VALUES[next] ?? 0.0).toFixed(3));
+              return next;
+            });
+          }
+        } else {
+          // Click on any other placed object = remove it
+          setPlaced(prev=>{const n={...prev};delete n[drag];return n;});
+          setSel(null);
+          // Send 0 for effect objects when click-removed
+          if (started && oscEnabled) {
+            if (def?.oscAddress) osc.send(def.oscAddress, '0.0');
+          }
         }
       }
       else{
@@ -950,7 +1112,7 @@ export default function App() {
       }
     }
     setDrag(null);setBlindsDragging(false);dragStartPos.current=null;dragMoved.current=false;
-  },[drag,osc,started]);
+  },[drag,osc,audio,started,oscEnabled,audioEnabled]);
 
   const onPointerLeave=useCallback(()=>{
     setMouseLXY(null);
@@ -976,7 +1138,7 @@ export default function App() {
               if(!wouldOverlap(def2.sprite,pos.lx,pos.ly,placedRef.current)){
                 setPlaced(prev=>({...prev,[def2.sprite]:pos}));
                 // ── Send OSC on initial placement for effect objects ──
-                if (started && def2.oscAddress) {
+                if (started && oscEnabled && def2.oscAddress) {
                   osc.send(def2.oscAddress, calcDepth(pos.lx, pos.ly).toFixed(3));
                 }
               }
@@ -989,73 +1151,129 @@ export default function App() {
       window.removeEventListener('pointermove',onMove);window.removeEventListener('pointerup',onUp);
     };
     window.addEventListener('pointermove',onMove);window.addEventListener('pointerup',onUp);
-  },[snapDiv,osc,started]);
+  },[snapDiv,osc,started,oscEnabled]);
 
   // Send 0 for effect objects when removed via the Remove button
   const removeObj=useCallback((sprite)=>{
-    if (started) {
+    if (started && oscEnabled) {
       const def = OBJECTS_DEF.find(d => d.sprite === sprite);
       if (def?.oscAddress) osc.send(def.oscAddress, '0.0');
     }
     setPlaced(prev=>{const n={...prev};delete n[sprite];return n;});
     setSel(null);
-  },[osc,started]);
+  },[osc,started,oscEnabled]);
 
   // ── OSC ───────────────────────────────────────────────────────────────────
   const clearTimers=useCallback(()=>{transTimers.current.forEach(clearTimeout);transTimers.current=[];},[]);
   useEffect(()=>()=>clearTimers(),[clearTimers]);
   const sendRole=useCallback((soundRole,p)=>{
-    if(!soundRole)return;
-    if(p)osc.send(`/soundroom/layer/${soundRole}`,computePan(p.lx).toFixed(3),computeVol(p.lx,p.ly).toFixed(3),'1.0');
-    else if(soundRole==='harmony')osc.send('/soundroom/layer/harmony','0.0','0.18','1.0');
-    else osc.send(`/soundroom/layer/${soundRole}`,'0.0','0.0','0.0');
-  },[osc]);
-  const sendAll=useCallback(()=>{OBJECTS_DEF.forEach(def=>{if(def.soundRole)sendRole(def.soundRole,placed[def.sprite]);});},[placed,sendRole]);
+    if(!soundRole||!oscEnabled)return;
+    if(p) osc.send(`/soundroom/layer/${soundRole}`,computePan(p.lx).toFixed(3),(computeVol(p.lx,p.ly)*0.55).toFixed(3),'1.0');  // ×0.55 headroom: 9×0.28×0.82=2.07 before clip~
+    else  osc.send(`/soundroom/layer/${soundRole}`,'0.0','0.0','0.0');
+    // NOTE: harmony no longer gets a 0.18 floor when unplaced — silence = silence.
+  },[osc,oscEnabled]);
+  const sendAll=useCallback(()=>{
+    if(!oscEnabled) return;
+    const anyPlaced = OBJECTS_DEF.some(def => placed[def.sprite]);
+    if (!anyPlaced) {
+      // Room is empty — kill every layer and send master silence to Max
+      OBJECTS_DEF.forEach(def=>{
+        if(def.soundRole) osc.send(`/soundroom/layer/${def.soundRole}`,'0.0','0.0','0.0');
+      });
+      osc.send('/soundroom/master','0.0');  // patch can use this to mute reverb tail etc.
+      return;
+    }
+    // Re-enable master in case it was silenced
+    osc.send('/soundroom/master','1.0');
+    OBJECTS_DEF.forEach(def=>{if(def.soundRole)sendRole(def.soundRole,placed[def.sprite]);});
+  },[placed,sendRole,osc,oscEnabled]);
   const pushSpeed=useCallback(()=>{
-    const p=placed['Room - Coffee.png'],s=p?0.9+p.lx*.25:1.0;
-    setSpeed(+s.toFixed(2));osc.send('/soundroom/speed',s.toFixed(3));
-  },[placed,osc]);
+    const p=placed['Room - Coffee.png'],s=p?0.4+p.lx*1.2:1.0;
+    setSpeed(+s.toFixed(2));
+    if(oscEnabled) osc.send('/soundroom/speed',s.toFixed(3));
+  },[placed,osc,oscEnabled]);
+  // Use a ref so handleStart always reads the latest audioMode (avoids stale closure)
+  const audioModeRef = useRef(null);
+  const handleModeSelect = useCallback((mode) => {
+    audioModeRef.current = mode;
+    setAudioMode(mode);
+    setShowModeSelect(false);
+  }, []);
+
   const handleStart=useCallback(()=>{
-    setShowLoad(false);setStarted(true);
+    const mode = audioModeRef.current;
+    const useOSCMode   = mode === 'osc'      || mode === 'both';
+    const useAudioMode = mode === 'webaudio' || mode === 'both';
+
+    // For webaudio: don't dismiss load screen yet — keep it showing progress
+    // For OSC-only: dismiss immediately, nothing async to wait for
+    if (!useAudioMode) {
+      setShowLoad(false);
+    }
+    setStarted(true);
+
+    if (useAudioMode) {
+      setIsLoadingStems(true);
+      audio.start(
+        (p) => setStemProgress(Math.round(p * 100)),
+        (loadedCount) => {
+          // Stems fully loaded — now dismiss load screen and sync everything
+          setIsLoadingStems(false);
+          setShowLoad(false);
+          if (loadedCount === 0) setStemLoadError(true);
+          audio.syncAll(placedRef.current);
+          const vinylPos = placedRef.current['Room - Vinyl Player.png'];
+          if (vinylPos) audio.applyVinyl(vinylPos.lx, vinylPos.ly);
+          const coffeePos = placedRef.current['Room - Coffee.png'];
+          audio.applySpeed(coffeePos ? 0.4 + coffeePos.lx * 1.2 : 1.0);
+          audio.applyBlinds(1 - blindsTRef.current);
+          audio.applyLamp(lampRef.current);
+          audio.applyWeather(weatherRef.current === 'rain' ? 1 : 0);
+        }
+      );
+    }
+
+    if (!useOSCMode) return;
     const msgs = [];
     OBJECTS_DEF.forEach(({soundRole})=>{if(soundRole)msgs.push([`/soundroom/layer/${soundRole}`,'0.0','0.0','0.0']);});
     msgs.push(['/soundroom/layer/harmony','0.0','0.18','1.0']);
     msgs.push(['/soundroom/time','0.0']);
-    msgs.push(['/soundroom/blinds',(1-0.25).toFixed(3)]);
+    msgs.push(['/soundroom/blinds',(1-0.9).toFixed(3)]);
     msgs.push(['/soundroom/lamp','0.0']);
     msgs.push(['/soundroom/weather','0.0']);
     msgs.push(['/soundroom/speed','1.0']);
-    // ── Initialise all effect OSC addresses to 0 at startup ──
+    msgs.push(['/soundroom/master','0.0']);
     OBJECTS_DEF.forEach(({oscAddress}) => { if (oscAddress) msgs.push([oscAddress, '0.0']); });
     AMBIENTS.forEach(({oscAddress}) => msgs.push([oscAddress, '0.0']));
     const wsFn = osc.waitAndSend || osc.send;
     msgs.forEach(([addr,...args], i) => setTimeout(() => wsFn(addr,...args), i*30));
   },[osc, audio]);
-  useEffect(()=>{if(!started)return;if(isNight===prevNight.current)return;prevNight.current=isNight;clearTimers();osc.send('/soundroom/time',isNight?'100.0':'0.0');transTimers.current.push(setTimeout(sendAll,Math.round(CFMS*.3)),setTimeout(sendAll,CFMS+150));},[isNight,started,osc,sendAll,clearTimers]);
-  useEffect(()=>{if(started)osc.send('/soundroom/blinds',blindsT.toFixed(3));},[blindsT,started,osc]);
-  useEffect(()=>{if(started)osc.send('/soundroom/lamp',String(lamp));},[lamp,started,osc]);
-  useEffect(()=>{if(started)osc.send('/soundroom/weather',weather==='rain'?'1.0':'0.0');},[weather,started,osc]);
+
+  useEffect(()=>{if(!started)return;if(isNight===prevNight.current)return;prevNight.current=isNight;clearTimers();if(oscEnabled)osc.send('/soundroom/time',isNight?'100.0':'0.0');transTimers.current.push(setTimeout(sendAll,Math.round(CFMS*.3)),setTimeout(sendAll,CFMS+150));},[isNight,started,osc,sendAll,clearTimers,oscEnabled]);
+  useEffect(()=>{if(started&&oscEnabled)osc.send('/soundroom/blinds',blindsT.toFixed(3));},[blindsT,started,osc,oscEnabled]);
+  useEffect(()=>{if(started&&oscEnabled)osc.send('/soundroom/lamp',String(lamp));},[lamp,started,osc,oscEnabled]);
+  useEffect(()=>{if(started&&oscEnabled)osc.send('/soundroom/weather',weather==='rain'?'1.0':'0.0');},[weather,started,osc,oscEnabled]);
   useEffect(()=>{if(started){sendAll();pushSpeed();}},[placed,started,sendAll,pushSpeed]);
 
   // ── WEB AUDIO ─────────────────────────────────────────────────────────────
   useEffect(()=>{
-    if(!started)return;
+    if(!started||!audioEnabled)return;
     if(isNight===prevNight.current)return;
     audio.transitionScene(isNight?'night':'day', placed);
-  },[isNight,started,audio,placed]);
-  useEffect(()=>{ if(started) audio.applyBlinds(1-blindsT); },[blindsT,started,audio]);
-  useEffect(()=>{ if(started) audio.applyLamp(lamp); },[lamp,started,audio]);
-  useEffect(()=>{ if(started) audio.applyWeather(weather==='rain'?1:0); },[weather,started,audio]);
+  },[isNight,started,audio,placed,audioEnabled]);
+  useEffect(()=>{ if(started&&audioEnabled) audio.applyBlinds(1-blindsT); },[blindsT,started,audio,audioEnabled]);
+  useEffect(()=>{ if(started&&audioEnabled) audio.applyLamp(lamp); },[lamp,started,audio,audioEnabled]);
+  useEffect(()=>{ if(started&&audioEnabled) audio.applyWeather(weather==='rain'?1:0); },[weather,started,audio,audioEnabled]);
   useEffect(()=>{
-    if(!started)return;
+    if(!started||!audioEnabled)return;
     audio.syncAll(placed);
     const vinylPos=placed['Room - Vinyl Player.png'];
     if(vinylPos) audio.applyVinyl(vinylPos.lx,vinylPos.ly);
     else audio.clearVinyl();
     if(!placed['Room - Laptop.png']){audio.clearLaptop();setLaptopLabel('CLEAN');}
     const coffeePos=placed['Room - Coffee.png'];
-    audio.applySpeed(coffeePos?0.9+coffeePos.lx*0.25:1.0);
-  },[placed,started,audio]);
+    audio.applySpeed(coffeePos?0.4+coffeePos.lx*1.2:1.0);
+  },[placed,started,audio,audioEnabled]);
 
   // ── Ambient toggle ────────────────────────────────────────────────────────
   // Toggle an ambience on/off — sends gain via OSC to Max.
@@ -1066,31 +1284,28 @@ export default function App() {
     setActiveAmbients(prev => {
       const next = new Set(prev);
       if (next.has(ambId)) {
-        // Turn off — send 0
-        osc.send(amb.oscAddress, '0.0');
+        if (oscEnabled) osc.send(amb.oscAddress, '0.0');
         next.delete(ambId);
       } else {
-        // Turn on — send current vol (default 0.3, kept low so music stays foregrounded)
         const vol = Math.min(ambientVolumes.current[ambId] ?? 0.3, 0.5);
-        osc.send(amb.oscAddress, vol.toFixed(3));
+        if (oscEnabled) osc.send(amb.oscAddress, vol.toFixed(3));
         next.add(ambId);
       }
       return next;
     });
-  }, [started, osc]);
+  }, [started, osc, oscEnabled]);
 
   const setAmbientVol = useCallback((ambId, vol) => {
     ambientVolumes.current[ambId] = vol;
-    // Only send if currently active
-    if (activeAmbients.has(ambId) && started) {
+    if (activeAmbients.has(ambId) && started && oscEnabled) {
       const amb = AMBIENTS.find(a => a.id === ambId);
       if (amb) osc.send(amb.oscAddress, vol.toFixed(3));
     }
-  }, [activeAmbients, started, osc]);
+  }, [activeAmbients, started, osc, oscEnabled]);
 
   // Zero all ambiences on unmount
   useEffect(() => () => {
-    if (started) AMBIENTS.forEach(({oscAddress}) => osc.send(oscAddress, '0.0'));
+    if (started && oscEnabled) AMBIENTS.forEach(({oscAddress}) => osc.send(oscAddress, '0.0'));
   }, []);
 
   // ── Shuffle / Reset ───────────────────────────────────────────────────────
@@ -1117,19 +1332,29 @@ export default function App() {
   return (
     <div ref={pageDivRef} style={{width:'100%',minHeight:'100vh',display:'flex',fontFamily:"'Courier New',monospace",boxSizing:'border-box'}}>
 
+      {showModeSelect && <ModeSelect onSelect={handleModeSelect} />}
+
       {showLoad&&(
-        <div style={{position:'fixed',inset:0,cursor:'pointer',zIndex:100,background:'rgba(20,10,4,.82)',backdropFilter:'blur(3px)',
-          display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'1.4rem',fontFamily:"'Courier New',monospace"}}
-          onClick={handleStart}>
+        <div style={{position:'fixed',inset:0,zIndex:100,background:'rgba(20,10,4,.82)',backdropFilter:'blur(3px)',
+          display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'center',gap:'1.4rem',fontFamily:"'Courier New',monospace",
+          cursor:isLoadingStems?'wait':'pointer'}}
+          onClick={isLoadingStems?undefined:handleStart}>
           <div style={{fontSize:9,color:'rgba(255,210,150,.4)',letterSpacing:4}}>DESE-61003 · AUDIO EXPERIENCE DESIGN</div>
           <div style={{fontSize:22,color:'#fff8f0',letterSpacing:5,fontWeight:'bold',textShadow:'2px 2px 0 rgba(80,30,0,.6)'}}>◈ SOUND ROOM ◈</div>
           <div style={{width:200,height:8,background:'rgba(80,30,10,.35)',border:'2px solid rgba(200,120,50,.4)'}}>
             <div style={{height:'100%',background:'linear-gradient(90deg,#c07030,#f0b050)',
-              width:`${stemProgress>0?stemProgress:100}%`,transition:'width .2s'}}/>
+              width:`${isLoadingStems?stemProgress:0}%`,transition:'width .2s'}}/>
           </div>
           <div style={{fontSize:11,color:'rgba(255,210,150,.5)',letterSpacing:2}}>
-            {stemProgress>0&&stemProgress<100?`loading stems… ${stemProgress}%`:'click to enter'}
+            {isLoadingStems?`loading stems… ${stemProgress}%`:'click to enter'}
           </div>
+          {stemLoadError&&(
+            <div style={{maxWidth:320,textAlign:'center',padding:'8px 12px',background:'rgba(180,60,40,.15)',border:'1px solid rgba(220,80,50,.4)',borderRadius:4,fontSize:8,color:'#e09080',lineHeight:1.6,letterSpacing:.5}}>
+              ✗ no stems found — check browser console for 404s<br/>
+              put files in <span style={{color:'#f0b070'}}>public/stems/day/</span> and <span style={{color:'#f0b070'}}>public/stems/night/</span><br/>
+              or flat in <span style={{color:'#f0b070'}}>public/stems/</span> (e.g. "1 Piano Main.aiff")
+            </div>
+          )}
         </div>
       )}
 
@@ -1143,6 +1368,9 @@ export default function App() {
         <div style={{width:DW+140,display:'flex',justifyContent:'space-between',alignItems:'center'}}>
           <div style={{fontSize:10,color:dCol,letterSpacing:3}}>
             ◈ SOUND ROOM · <span style={{color:isDark?'#80b8e0':'#d47830',transition:'color 1s'}}>{isDark?'NIGHT':'DAY'}</span>
+            {audioMode&&<span style={{marginLeft:10,fontSize:7,color:audioMode==='osc'?'#e8c84a':audioMode==='webaudio'?'#4ae880':'#4ac8e8',letterSpacing:2,opacity:.7}}>
+              {audioMode==='osc'?'[OSC]':audioMode==='webaudio'?'[WEB AUDIO]':'[HYBRID]'}
+            </span>}
           </div>
           <div style={{display:'flex',alignItems:'center',gap:6}}>
             {[
@@ -1151,17 +1379,21 @@ export default function App() {
               [doShuffle,'shuffle'],
               [()=>{
                 // Zero out effect + ambience OSC addresses on reset
-                if (started) {
+                if (started && oscEnabled) {
                   OBJECTS_DEF.forEach(({oscAddress}) => { if (oscAddress) osc.send(oscAddress, '0.0'); });
+                  OBJECTS_DEF.forEach(({soundRole}) => { if (soundRole) osc.send(`/soundroom/layer/${soundRole}`,'0.0','0.0','0.0'); });
                   AMBIENTS.forEach(({oscAddress}) => osc.send(oscAddress, '0.0'));
+                  osc.send('/soundroom/master','0.0');
                 }
                 setActiveAmbients(new Set());
                 setPlaced({});setSel(null);
-                setLamp(0);setBlindsT(0.25);setWeather('clear');
+                setLamp(0);setBlindsT(0.9);setWeather('clear');
                 setSpeed(1.0);startDnTransition(0);
-                audio.applyBlinds(1-0.25);audio.applyLamp(0);
-                audio.applyWeather(0);audio.applySpeed(1.0);
-                audio.syncAll({});
+                if (audioEnabled) {
+                  audio.applyBlinds(1-0.25);audio.applyLamp(0);
+                  audio.applyWeather(0);audio.applySpeed(1.0);
+                  audio.syncAll({});
+                }
               },'reset'],
               [()=>setDebug(d=>!d),debug?'◉ debug':'○ debug'],
             ].map(([fn,label],i)=>(
@@ -1224,11 +1456,15 @@ export default function App() {
                 onPointerDown={e=>e.stopPropagation()}>
                 <div style={{color:tCol,fontSize:11,marginBottom:2,letterSpacing:1}}>{selDef.name}</div>
                 <div style={{color:dCol,fontSize:8,marginBottom:6}}>
-                  {selDef.oscAddress
-                    ? `⚡ fx → ${selDef.oscAddress.split('/').pop()} · depth ${Math.round(calcDepth(placed[sel]?.lx??0.5, placed[sel]?.ly??0.5)*100)}%`
-                    : selDef.isSpeed
-                      ? `⚡ speed: ${speed}x`
-                      : `${selDef.soundRole??'no sound'} · drag to move`}
+                  {selDef.id === 'Coffee'
+                    ? `☕ speed: ${speed}× · ${Math.round((isNight?110:80)*speed)} BPM · left=slow right=fast`
+                    : selDef.id === 'Vinyl'
+                      ? `🎛 tape warble · flutter ${Math.round(Math.abs((placed[sel]?.lx??0.5)-0.5)*200)}% · warmth ${Math.round(calcDepth(placed[sel]?.lx??0.5, placed[sel]?.ly??0.5)*100)}%`
+                      : selDef.id === 'Laptop'
+                        ? `💻 bitcrusher: ${laptopLabel} · click to cycle · drag to move`
+                        : selDef.isSpeed
+                          ? `⚡ speed: ${speed}x`
+                          : `${selDef.soundRole??'no sound'} · drag to move`}
                 </div>
                 <button onClick={()=>removeObj(sel)} style={{padding:'3px 10px',background:'rgba(160,50,30,.15)',border:'1px solid rgba(180,70,40,.35)',color:'#d08870',fontSize:9,cursor:'pointer',fontFamily:'inherit',borderRadius:3}}>remove</button>
               </div>
@@ -1256,7 +1492,11 @@ export default function App() {
               <div key={def.id}
                 onMouseEnter={()=>setHovTray(def.id)} onMouseLeave={()=>setHovTray(null)}
                 onPointerDown={e=>onTrayDown(e,def)}
-                title={isPlaced?`${def.name} · placed`:`${def.name}${def.oscAddress?' · fx':''}· drag into room`}
+                title={isPlaced?`${def.name} · placed`
+                  : def.id==='Coffee' ? `${def.name} · controls playback speed · drag into room`
+                  : def.id==='Vinyl'  ? `${def.name} · tape warble + warmth filter · drag into room`
+                  : def.id==='Laptop' ? `${def.name} · bitcrusher (CLEAN→LO-FI→GLITCH) · drag into room`
+                  : `${def.name}${def.oscAddress?' · fx':''}· drag into room`}
                 style={{position:'relative',display:'flex',flexDirection:'column',alignItems:'center',justifyContent:'flex-end',gap:3,padding:'6px 6px 3px',
                   background:isPlaced?'rgba(60,30,10,.04)':isHov?`rgba(${isDark?'60,100,160':'180,100,40'},.2)`:'rgba(60,30,10,.08)',
                   border:`1px solid rgba(${isDark?'80,130,200':'160,90,40'},${isPlaced?.04:isHov?.45:.14})`,
@@ -1296,6 +1536,7 @@ export default function App() {
         weather={weather}
         speed={speed}
         activeAmbients={[...activeAmbients]}
+        laptopLabel={laptopLabel}
       />
     </div>
   );
