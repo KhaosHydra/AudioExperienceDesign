@@ -119,8 +119,6 @@ const OBJECTS_DEF = [
 // Ambience definitions — OSC-only, synthesised in MaxMSP.
 // Each sends /soundroom/amb/<id> with a 0-1 gain value.
 const AMBIENTS = [
-  { id:'rain',      label:'Rain',      icon:'🌧', desc:'Soft rain on glass',  color:'#6090c0', oscAddress:'/soundroom/amb/rain'  },
-  { id:'storm',     label:'Storm',     icon:'⛈',  desc:'Thunder & heavy rain', color:'#7070a0', oscAddress:'/soundroom/amb/storm' },
   { id:'ocean',     label:'Ocean',     icon:'🌊', desc:'Distant waves',        color:'#408090', oscAddress:'/soundroom/amb/ocean' },
   { id:'fireplace', label:'Fireplace', icon:'🔥', desc:'Crackling fire',       color:'#c06020', oscAddress:'/soundroom/amb/fire'  },
 ];
